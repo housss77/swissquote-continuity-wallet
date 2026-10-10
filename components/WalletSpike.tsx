@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import type { PasskeyArgType } from '@safe-global/protocol-kit'
 import type { Safe4337Pack } from '@safe-global/relay-kit'
 import { formatEther, type Hash } from 'viem'
-import { CHAIN_ID, EXPLORER, NFT_ADDRESS, PAYMASTER_ADDRESS, providerConfig } from '../lib/constants'
+import { CHAIN_ID, EXPLORER, NFT_ADDRESS, providerConfig } from '../lib/constants'
 import { diagnose, type Diagnostic } from '../lib/diagnostics'
 import { friendlyError, type Stage } from '../lib/errors'
 import { assertPasskeySupport, authenticatePasskey, createPasskey, loadPasskey, savePasskey } from '../lib/passkeys'
 import type { ConfirmedProof } from '../lib/proof'
 import { mintTransaction, transferTransaction } from '../lib/transactions'
-import { archivePending, checkNetworks, confirmOperation, initializeWallet, loadPending, operationHash, publicClient, savePending, submitOperation, walletSnapshot, type PendingOperation, type WalletSnapshot } from '../lib/wallet'
+import { diagnoseSponsorship, prepareSponsoredTransaction, type SponsorshipReport } from '../lib/sponsorship'
+import { archivePending, checkNetworks, confirmOperation, initializeWallet, loadPending, operationHash, publicClient, savePending, sponsorshipReads, submitOperation, walletSnapshot, type PendingOperation, type WalletSnapshot } from '../lib/wallet'
 
 const lifecycleText = {
   prepared: 'Prepared locally; no broadcast yet.',
@@ -47,6 +48,7 @@ export default function WalletSpike() {
   const [status, setStatus] = useState('Create a passkey to begin.')
   const [error, setError] = useState('')
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null)
+  const [sponsorshipReport, setSponsorshipReport] = useState<SponsorshipReport | null>(null)
   const [kind, setKind] = useState<'transfer' | 'mint'>('mint')
   const [recipient, setRecipient] = useState('')
   const [amount, setAmount] = useState('0.00001')
@@ -175,16 +177,15 @@ export default function WalletSpike() {
         description = `Tutorial NFT mint: token ${mint.tokenId} to this Safe. Zero ETH transferred.`
       }
       setStatus('Estimating the UserOperation and requesting sponsorship…')
-      const operation = await pack.createTransaction({ transactions: [transaction] })
-      const sponsor = operation.toUserOperation().paymasterAndData
-      if (!/^0x[a-fA-F0-9]+$/.test(sponsor) || sponsor.length <= 42) throw new Error('SPONSORSHIP_MISSING_DATA')
-      if (!sponsor.toLowerCase().startsWith(PAYMASTER_ADDRESS.toLowerCase())) throw new Error('SPONSORSHIP_UNEXPECTED_PAYMASTER')
+      const { operation, paymasterAddress } = await prepareSponsoredTransaction(pack, wallet.address, transaction, sponsorshipReads)
+      const preparedHash = operationHash(operation.toUserOperation())
       stage = 'sign'
       setStatus('Prepared locally. Approve the transaction-bound passkey signature in your browser.')
       const signed = await pack.signSafeOperation(operation)
       // Keep the local hash for ambiguous network failures, never as acceptance proof.
       const hash = operationHash(signed.toUserOperation())
-      const next: PendingOperation = { userOperationHash: hash, safeAddress: wallet.address, kind, description, state: 'prepared', acceptance: 'no', createdAt: new Date().toISOString() }
+      if (hash !== preparedHash) throw new Error('SPONSORSHIP_SIGNED_MISMATCH')
+      const next: PendingOperation = { userOperationHash: hash, safeAddress: wallet.address, paymasterAddress, kind, description, state: 'prepared', acceptance: 'no', createdAt: new Date().toISOString() }
       recordOperation(next)
       stage = 'submit'
       const submitted = await submitOperation(signed, next, recordOperation)
@@ -207,6 +208,24 @@ export default function WalletSpike() {
         try { savePending(latest) } catch { /* Show the storage error without broadcasting again. */ }
       }
       setStatus('Operation has not been verified as successful.')
+    } finally { setBusy(false); lock.current = false }
+  }
+
+  async function probeSponsorship() {
+    if (!passkey || lock.current) return
+    lock.current = true
+    setBusy(true)
+    setSponsorshipReport(null)
+    try {
+      // SDK initialization uses public metadata; no WebAuthn request is made.
+      const pack = await initializeWallet(passkey)
+      const safe = await pack.protocolKit.getAddress() as WalletSnapshot['address']
+      const expected = wallet?.address || pendingRef.current?.safeAddress
+      if (expected && safe.toLowerCase() !== expected.toLowerCase()) throw new Error('OWNER_MISMATCH')
+      const mint = mintTransaction(safe)
+      setSponsorshipReport(await diagnoseSponsorship(pack, safe, mint.transaction, sponsorshipReads))
+    } catch (cause) {
+      setSponsorshipReport({ checks: {}, valid: false, error: diagnose(cause, 'prepare', 'no') })
     } finally { setBusy(false); lock.current = false }
   }
 
@@ -238,6 +257,12 @@ export default function WalletSpike() {
     <p role="status" aria-live="polite">{status}</p>
     {error && <p role="alert">{error}</p>}
     {diagnostic && <section aria-label="Attempt diagnostic"><h2>Attempt diagnostic</h2><DiagnosticDisplay value={diagnostic} /></section>}
+    {passkey && <section aria-label="Preparation-only sponsorship diagnostic">
+      <h2>Preparation-only sponsorship diagnostic</h2>
+      <p>Request a tutorial NFT sponsorship quote using the saved public wallet metadata. No passkey approval, signing, broadcast, or attempt-history changes. A valid quote is not an onchain transaction.</p>
+      <button onClick={() => void probeSponsorship()} disabled={busy}>Diagnose NFT sponsorship (no signing or sending)</button>
+      {sponsorshipReport && <pre>{JSON.stringify(sponsorshipReport, null, 2)}</pre>}
+    </section>}
 
     <section>
       <h2>1. Create or authenticate a passkey</h2>

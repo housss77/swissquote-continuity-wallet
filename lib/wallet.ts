@@ -1,18 +1,26 @@
 import type { PasskeyArgType } from '@safe-global/protocol-kit'
 import { Safe4337Pack } from '@safe-global/relay-kit'
 import { userOperationToHexValues } from '@safe-global/relay-kit/dist/src/packs/safe-4337/utils'
-import { createPublicClient, getAddress, http, isAddress, type Address, type Hash, type Hex } from 'viem'
+import { createPublicClient, getAddress, http, isAddress, parseAbi, zeroAddress, type Address, type Hash, type Hex } from 'viem'
 import { getUserOperationHash } from 'viem/account-abstraction'
 import { assertSepolia, CHAIN, CHAIN_ID, ENTRY_POINT, PAYMASTER_ADDRESS, PENDING_KEY, providerConfig, RPC_URL } from './constants'
 import { verifyReceipt } from './proof'
 import { diagnose, scrubMessage, type Diagnostic } from './diagnostics'
 import { broadcastOperation, inspectOperation, isHash, pollOperation, rpcRequest, type BundlerReceipt, type PendingOperation } from './operations'
+import { extractPaymaster, type SponsorshipReads } from './sponsorship'
 export type { PendingOperation } from './operations'
 
 export const publicClient = createPublicClient({
   chain: CHAIN,
   transport: http(RPC_URL, { timeout: 12_000, retryCount: 1 }),
 })
+
+export const sponsorshipReads: SponsorshipReads = {
+  getChainId: () => publicClient.getChainId(),
+  getCode: address => publicClient.getCode({ address }),
+  getPaymasterEntryPoint: address => publicClient.readContract({ address,
+    abi: parseAbi(['function entryPoint() view returns (address)']), functionName: 'entryPoint' }),
+}
 
 export type WalletSnapshot = { address: Address; balance: bigint; deployed: boolean; owner: Address }
 async function bundlerRpc<T>(method: string, params: unknown[] = []): Promise<T> {
@@ -46,7 +54,7 @@ export async function initializeWallet(passkey: PasskeyArgType): Promise<Safe433
       isSponsored: true,
       paymasterUrl: config.paymasterUrl,
       sponsorshipPolicyId: config.sponsorshipPolicyId,
-      // The tutorial seeds estimation with the EntryPoint 0.6 paymaster address.
+      // Estimation seed only; the validated response determines the final sponsor.
       ...{ paymasterAddress: PAYMASTER_ADDRESS },
     },
     options: { owners: [], threshold: 1, safeVersion: '1.4.1', saltNonce: '0' },
@@ -110,6 +118,7 @@ export function loadPending(): PendingOperation | null {
     if (!data) return null
     if (!/^0x[a-fA-F0-9]{64}$/.test(data.userOperationHash) || !isAddress(data.safeAddress)
       || !['mint', 'transfer'].includes(data.kind) || typeof data.description !== 'string') throw new Error('STORED_DATA')
+    if (data.paymasterAddress !== undefined && (!isAddress(data.paymasterAddress) || data.paymasterAddress.toLowerCase() === zeroAddress)) throw new Error('STORED_DATA')
     const states = ['prepared', 'broadcasting', 'accepted', 'included', 'rejected', 'failed', 'unknown']
     // Old records have no evidence of acceptance. Reload never resumes a send.
     const state = states.includes(data.state) && !['broadcasting', 'included'].includes(data.state) ? data.state : 'unknown'
@@ -118,7 +127,7 @@ export function loadPending(): PendingOperation | null {
       ? { ...diagnose({ message: value.message, code: value.rpcCode, status: value.httpStatus }, value.stage, value.acceptance), at: value.at, sdkCode: value.sdkCode ? scrubMessage(value.sdkCode) : undefined }
       : undefined
     return {
-      userOperationHash: data.userOperationHash, safeAddress: data.safeAddress, kind: data.kind,
+      userOperationHash: data.userOperationHash, safeAddress: data.safeAddress, paymasterAddress: data.paymasterAddress, kind: data.kind,
       description: data.description, state, acceptance, createdAt: data.createdAt,
       acknowledgement: data.acknowledgement && isHash(data.acknowledgement.hash)
         ? { hash: data.acknowledgement.hash, at: data.acknowledgement.at, httpStatus: data.acknowledgement.httpStatus } : undefined,
@@ -144,9 +153,12 @@ export function archivePending(pending: PendingOperation) {
 
 export async function submitOperation(signed: Awaited<ReturnType<Safe4337Pack['signSafeOperation']>>, pending: PendingOperation, update: (value: PendingOperation) => void) {
   const { bundlerUrl } = providerConfig(true)
+  const operation = signed.toUserOperation()
+  if (!pending.paymasterAddress || extractPaymaster(operation.paymasterAndData).toLowerCase() !== pending.paymasterAddress.toLowerCase()
+    || operation.sender.toLowerCase() !== pending.safeAddress.toLowerCase() || operationHash(operation) !== pending.userOperationHash) throw new Error('SPONSORSHIP_SIGNED_MISMATCH')
   // Relay Kit 3.1.0 executeTransaction does exactly this RPC with this SDK serializer.
   // Keep SDK preparation/signing intact; use one observable, non-retrying POST.
-  const params = [userOperationToHexValues(signed.toUserOperation()), ENTRY_POINT]
+  const params = [userOperationToHexValues(operation), ENTRY_POINT]
   return broadcastOperation(pending, () => rpcRequest<Hash>(bundlerUrl, 'eth_sendUserOperation', params), update)
 }
 
@@ -159,10 +171,12 @@ export async function verifyOperationInclusion(pending: PendingOperation, result
       throw error
     })
   if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error('EVIDENCE_MISMATCH')
-  const proof = verifyReceipt(receipt, pending.userOperationHash, pending.safeAddress)
+  const proof = verifyReceipt(receipt, pending.userOperationHash, pending.safeAddress, pending.paymasterAddress)
   if (result && !result.success) throw new Error('EVIDENCE_MISMATCH')
   const code = await publicClient.getCode({ address: pending.safeAddress, blockNumber: receipt.blockNumber })
   if (!code || code === '0x') throw new Error('EVIDENCE_MISMATCH')
+  const sponsorCode = await publicClient.getCode({ address: proof.paymaster, blockNumber: receipt.blockNumber })
+  if (!sponsorCode || sponsorCode === '0x') throw new Error('EVIDENCE_MISMATCH')
   return proof
 }
 

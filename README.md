@@ -94,6 +94,39 @@ provider-compatibility adjustment. EntryPoint 0.6 and `add_balance_override` rem
 The override assists simulation; it does not fund the Safe or fake onchain balances.
 There is no self-funded gas fallback: failed sponsorship is a failed spike step.
 
+The tutorial's `PAYMASTER_ADDRESS` is an **estimation seed**, not a required final
+sponsor. Relay Kit **3.1.0** requests `pm_sponsorUserOperation` with its v0.6 hex
+UserOperation, EntryPoint address, and `{ sponsorshipPolicyId }`. Its `feeEstimator`
+hook now validates the real response before the SDK applies it: byte-aligned
+`paymasterAndData` with a nonzero 20-byte address and nonempty authorization data;
+required positive gas quantities; matching request provider/policy, EntryPoint,
+Safe sender, recipient, value, and exact NFT/transfer call data. Independent Sepolia
+reads require deployed paymaster code and its `entryPoint()` to match v0.6.
+The prepared operation must preserve the request nonce/init code/intent and the
+validated response fields. Signing must preserve that prepared operation hash.
+Each new pending record stores only the public returned paymaster address; receipt
+verification matches that sponsor rather than the estimation seed. Historical
+records remain intact; without a recorded expected sponsor, verification can establish
+only the nonzero sponsor in the independently matching onchain event.
+See [Pimlico's v0.6 sponsorship schema](https://docs.pimlico.io/references/paymaster/verifying-paymaster/endpoints).
+
+### Preparation-only sponsorship diagnostic
+
+In the **same Chrome profile and localhost origin** that holds your saved public
+passkey metadata, click **Diagnose NFT sponsorship (no signing or sending)** once.
+Authentication/reconnect is not required for this diagnostic. It initializes the same
+predicted Safe from public metadata and prepares the tutorial NFT call with the SDK's
+dummy signature. It cannot request a real passkey signature, broadcast, or write to
+wallet/attempt storage. The operation and raw sponsorship authorization are discarded;
+only the public returned address, response field types, validation results, and
+sanitized errors appear. `valid: true` means a validated preparation, **not** bundler
+acceptance or onchain success. The quote is not reused for a later send.
+Pimlico can temporarily reserve sponsorship budget for a quote; its documented
+sponsorship window is ten minutes. Run this once, not in a polling loop.
+If contract/EntryPoint/provider/intent validation fails, stop and share this public
+report; do not force a send or replace the wallet. A documentation example address
+alone is not a canonical provider allowlist, so no replacement address is hardcoded.
+
 `npm run check:provider` performs only reads. It checks both chain IDs, EntryPoint 0.6
 support, deployed contracts, and retrieves the configured policy with Pimlico's account
 API. It checks identity, active status, time window, and Sepolia allowance. A key with
@@ -136,21 +169,24 @@ by the SDK sponsorship request when the user prepares an operation.
    of acceptance. **Submission acknowledgement** appears only after the bundler returns
    a matching hash. Wait for **Confirmed onchain**.
    It requires an independent successful RPC transaction receipt, a matching successful
-   EntryPoint `UserOperationEvent` with the tutorial paymaster, deployed Safe code, and
+   EntryPoint `UserOperationEvent` with the operation's validated returned paymaster, deployed Safe code, and
    **two block confirmations**.
 8. Copy the actual transaction hash, UserOperation hash, and confirmed explorer link.
    Open the link and verify Success on Sepolia Etherscan. Inspect the matching EntryPoint
    event and Safe deployment. For a transfer, check the internal ETH call to your distinct
    recipient and value; for a mint, check the NFT transfer event to the Safe.
-9. Independently check the three public values in another terminal:
+9. Independently check the public transaction, operation, Safe, and sponsor values in another terminal:
 
    ```powershell
-   npm run verify:onchain -- <transaction-hash> <useroperation-hash> <safe-address>
+   npm run verify:onchain -- <transaction-hash> <useroperation-hash> <safe-address> <expected-paymaster-address>
    ```
 
    This uses public Sepolia RPC without a Pimlico key and exits nonzero if matching,
    successful sponsored evidence or confirmations cannot be verified. It verifies the
-   UserOperation; inspect the asset call/event in Etherscan as above.
+   UserOperation; inspect the asset call/event in Etherscan as above. The fourth public
+   argument binds verification to the paymaster recorded for this operation. If omitted
+   for a historical attempt, it verifies a nonzero sponsor from the matching event,
+   without asserting a previously recorded provider address.
 10. Reload, click **Authenticate and connect Safe**, approve the original passkey, and
     verify the same deployed address. Optionally send another small operation to test
     signing after deployment. This reconnects the same passkey; recovery is not implemented.
@@ -201,7 +237,7 @@ The missing policy ID is a configuration blocker, not a verified cause of the ol
    acceptance evidence, and public UserOperation hash. Share only the diagnostic display,
    never DevTools request payloads/headers, passkey data, or credential-bearing URLs.
 8. On verified inclusion, copy the actual transaction hash/explorer link and run
-   `npm run verify:onchain -- <transaction-hash> <useroperation-hash> <safe-address>`.
+   `npm run verify:onchain -- <transaction-hash> <useroperation-hash> <safe-address> <expected-paymaster-address>`.
    Verify the NFT mint event to the Safe in Sepolia Etherscan. Stop after this single retry.
 
 The SDK still creates, estimates/sponsors, and signs the operation. Relay Kit 3.1.0's
@@ -252,6 +288,11 @@ Focused lifecycle unit tests use explicitly synthetic fixtures for acknowledgeme
 pending, successful inclusion, failure, and timeout. These are test-only data and provide
 no evidence of a real blockchain operation. They also verify one POST, preservation of
 errors/identity, and that success requires the independent verification callback.
+Sponsorship regressions exercise the pinned SDK operation class with a returned
+paymaster differing from the seed, response/gas validation, deployed code/EntryPoint,
+request context and exact intent, prepared-field binding, sponsor receipt matching,
+and preparation-only error scrubbing. A browser diagnostic failure test checks that
+it never prompts a passkey, broadcasts, or changes identity/history.
 
 Optional read-only SDK integration check with a configured Pimlico key:
 

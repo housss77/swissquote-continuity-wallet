@@ -5,6 +5,7 @@ export const CHAIN = sepolia
 export const CHAIN_ID = 11155111
 export const RPC_URL = process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL?.trim() || 'https://ethereum-sepolia-rpc.publicnode.com'
 export const ENTRY_POINT: Address = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789'
+// Tutorial estimation seed; Pimlico chooses the actual sponsor in its response.
 export const PAYMASTER_ADDRESS: Address = '0x0000000000325602a77416A16136FDafd04b299f'
 export const NFT_ADDRESS: Address = '0xBb9ebb7b8Ee75CDBf64e5cE124731A89c2BC4A07'
 export const EXPLORER = 'https://sepolia.etherscan.io'

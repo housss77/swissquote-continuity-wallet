@@ -90,3 +90,31 @@ test('read-only checks preserve submission diagnostics and never broadcast', asy
   await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
   expect(broadcasts).toBe(0)
 })
+
+test('preparation diagnostic failure cannot prompt a passkey, broadcast, or change stored identity/history', async ({ page }) => {
+  let broadcasts = 0
+  await page.addInitScript(() => {
+    // Isolated public metadata fixture; not a real passkey or wallet identity.
+    localStorage.setItem('continuity-wallet-sepolia-passkey-v1', JSON.stringify({ rawId: '00', coordinates: { x: `0x${'11'.repeat(32)}`, y: `0x${'22'.repeat(32)}` } }))
+    localStorage.setItem('continuity-wallet-sepolia-pending-v1-history', '[]')
+    Object.defineProperty(navigator.credentials, 'get', { value: async () => { throw new Error('Preparation must never request passkey signing') } })
+    Object.defineProperty(navigator.credentials, 'create', { value: async () => { throw new Error('Preparation must never create a passkey') } })
+  })
+  await page.route('**/*', async route => {
+    if (new URL(route.request().url()).hostname === 'localhost') return route.continue()
+    const body = route.request().postDataJSON() as { method?: string }
+    if (body?.method === 'eth_sendUserOperation') broadcasts++
+    await route.fulfill({ status: 503, body: 'offline preparation fixture' })
+  })
+  await page.goto('/')
+  const storageBefore = await page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()))
+  await page.getByRole('button', { name: 'Diagnose NFT sponsorship (no signing or sending)' }).click()
+  const report = page.getByRole('region', { name: 'Preparation-only sponsorship diagnostic' }).locator('pre')
+  await expect(report).toContainText('"valid": false', { timeout: 30_000 })
+  await expect(report).toContainText('"stage": "prepare"')
+  await expect(report).toContainText('"acceptance": "no"')
+  await expect(report).not.toContainText('Preparation must never')
+  expect(await page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()))).toBe(storageBefore)
+  expect(broadcasts).toBe(0)
+  await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
+})

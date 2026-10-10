@@ -1,5 +1,5 @@
-import { decodeEventLog, parseAbi, type Address, type Hash, type TransactionReceipt } from 'viem'
-import { ENTRY_POINT, PAYMASTER_ADDRESS } from './constants'
+import { decodeEventLog, parseAbi, zeroAddress, type Address, type Hash, type TransactionReceipt } from 'viem'
+import { ENTRY_POINT } from './constants'
 
 export const ENTRY_POINT_ABI = parseAbi([
   'event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)',
@@ -18,6 +18,7 @@ export function verifyReceipt(
   receipt: Pick<TransactionReceipt, 'status' | 'transactionHash' | 'blockNumber' | 'logs'>,
   userOperationHash: Hash,
   safeAddress: Address,
+  expectedPaymaster?: Address,
 ): ConfirmedProof {
   if (receipt.status !== 'success') throw new Error('OPERATION_REVERTED')
   if (!/^0x[a-fA-F0-9]{64}$/.test(receipt.transactionHash)
@@ -31,7 +32,10 @@ export function verifyReceipt(
     catch { continue }
     const args = decoded.args
     if (args.userOpHash.toLowerCase() !== userOperationHash.toLowerCase()) continue
-    if (args.sender.toLowerCase() !== safeAddress.toLowerCase() || args.paymaster.toLowerCase() !== PAYMASTER_ADDRESS.toLowerCase()) {
+    // New attempts bind to their validated sponsor. Historical records without
+    // that field can establish a nonzero sponsor only from the matching chain event.
+    if (args.sender.toLowerCase() !== safeAddress.toLowerCase() || args.paymaster.toLowerCase() === zeroAddress
+      || (expectedPaymaster && args.paymaster.toLowerCase() !== expectedPaymaster.toLowerCase())) {
       throw new Error('EVIDENCE_MISMATCH')
     }
     if (!args.success) throw new Error('OPERATION_REVERTED')

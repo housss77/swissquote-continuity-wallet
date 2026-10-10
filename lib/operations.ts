@@ -6,6 +6,7 @@ export type OperationState = 'prepared' | 'broadcasting' | 'accepted' | 'include
 export type PendingOperation = {
   userOperationHash: Hash
   safeAddress: Address
+  paymasterAddress?: Address
   kind: 'transfer' | 'mint'
   description: string
   state: OperationState

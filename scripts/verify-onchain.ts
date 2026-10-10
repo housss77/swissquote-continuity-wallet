@@ -1,14 +1,15 @@
-import { createPublicClient, getAddress, http, isAddress, type Hash } from 'viem'
+import { createPublicClient, getAddress, http, isAddress, zeroAddress, type Hash } from 'viem'
 import { sepolia } from 'viem/chains'
 import { assertSepolia } from '../lib/constants'
 import { verifyReceipt } from '../lib/proof'
 
 // Independent, read-only public Sepolia verification. No Pimlico key required.
 async function main() {
-  const [transactionHash, userOperationHash, safeAddress] = process.argv.slice(2)
+  const [transactionHash, userOperationHash, safeAddress, paymasterAddress] = process.argv.slice(2)
   if (!/^0x[a-fA-F0-9]{64}$/.test(transactionHash || '')
-    || !/^0x[a-fA-F0-9]{64}$/.test(userOperationHash || '') || !isAddress(safeAddress || '')) {
-    process.stderr.write('Usage: npm run verify:onchain -- <transaction-hash> <useroperation-hash> <safe-address>\n')
+    || !/^0x[a-fA-F0-9]{64}$/.test(userOperationHash || '') || !isAddress(safeAddress || '')
+    || (paymasterAddress !== undefined && (!isAddress(paymasterAddress) || paymasterAddress.toLowerCase() === zeroAddress))) {
+    process.stderr.write('Usage: npm run verify:onchain -- <transaction-hash> <useroperation-hash> <safe-address> [expected-paymaster-address]\n')
     process.exitCode = 1
     return
   }
@@ -18,9 +19,11 @@ async function main() {
     const receipt = await client.getTransactionReceipt({ hash: transactionHash as Hash })
     const latest = await client.getBlockNumber()
     if (latest < receipt.blockNumber + 1n) throw new Error('NOT_TWO_CONFIRMATIONS')
-    const proof = verifyReceipt(receipt, userOperationHash as Hash, getAddress(safeAddress))
+    const proof = verifyReceipt(receipt, userOperationHash as Hash, getAddress(safeAddress), paymasterAddress ? getAddress(paymasterAddress) : undefined)
     const code = await client.getCode({ address: proof.safeAddress, blockNumber: receipt.blockNumber })
     if (!code || code === '0x') throw new Error('SAFE_NOT_DEPLOYED')
+    const sponsorCode = await client.getCode({ address: proof.paymaster, blockNumber: receipt.blockNumber })
+    if (!sponsorCode || sponsorCode === '0x') throw new Error('PAYMASTER_NOT_DEPLOYED')
     process.stdout.write(`${JSON.stringify({ network: 'Ethereum Sepolia', chainId: 11155111, ...proof, explorer: `https://sepolia.etherscan.io/tx/${proof.transactionHash}` }, null, 2)}\n`)
   } catch {
     process.stderr.write('NOT VERIFIED: RPC unavailable, insufficient confirmations, reverted execution, or mismatched/missing sponsored EntryPoint evidence.\n')
