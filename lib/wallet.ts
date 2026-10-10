@@ -37,7 +37,7 @@ export async function checkNetworks() {
   assertSepolia(BigInt(bundlerId))
 }
 
-export async function initializeWallet(passkey: PasskeyArgType): Promise<Safe4337Pack> {
+export async function initializeWallet(passkey: PasskeyArgType, existingSafe?: Address): Promise<Safe4337Pack> {
   await checkNetworks()
   const supported = await bundlerRpc<string[]>('eth_supportedEntryPoints')
   if (!supported.some(address => address.toLowerCase() === ENTRY_POINT.toLowerCase())) {
@@ -57,7 +57,7 @@ export async function initializeWallet(passkey: PasskeyArgType): Promise<Safe433
       // Estimation seed only; the validated response determines the final sponsor.
       ...{ paymasterAddress: PAYMASTER_ADDRESS },
     },
-    options: { owners: [], threshold: 1, safeVersion: '1.4.1', saltNonce: '0' },
+    options: existingSafe ? { safeAddress: existingSafe } : { owners: [], threshold: 1, safeVersion: '1.4.1', saltNonce: '0' },
   })
   assertSepolia(BigInt(await pack.getChainId()))
   return pack

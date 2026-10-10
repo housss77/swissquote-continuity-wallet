@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test'
 
+test('recovery opens from a clean browser without an original wallet session',async ({page})=>{
+  await page.goto('/recovery')
+  await expect(page.getByRole('heading',{name:'Recover your Continuity Wallet'})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Find wallet',exact:true})).toBeDisabled()
+  expect(await page.evaluate(()=>localStorage.length)).toBe(0)
+  await expect(page.getByText('Owner rotation confirmed',{exact:false})).toHaveCount(0)
+})
+test('anonymous demo bank approval is rejected before any signing or RPC action',async ({page})=>{
+  await page.goto('/recovery')
+  const reply=await page.evaluate(async()=>{
+    const response=await fetch('/api/recovery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'bank_approve',verifiedDemoIdentity:true})})
+    return {status:response.status,body:await response.json()}
+  })
+  expect(reply.status).toBe(400)
+  expect(reply.body.error).toBe('RECOVERY_OPERATOR_UNAUTHORIZED')
+})
+
 test('startup shows Sepolia and never shows a fabricated success', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Swissquote Continuity Wallet', exact: true })).toBeVisible()

@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { encodeFunctionData, encodeEventTopics, encodeAbiParameters, parseAbi, getAddress, type PublicClient, type TransactionReceipt } from 'viem'
+import { assertDisposableSafe, expectedModuleCodeHash, EXISTING_SAFE, SHARED_SIGNER } from '../lib/recovery/contracts'
+import { isRecoveryProtected } from '../lib/recovery/onchain'
+import { intentHash, parseIntent } from '../lib/recovery/signatures'
+import { batchIntentValidator, enrollmentCalls } from '../lib/recovery/enrollment'
+import { validateCredential, verifyFreshCredential } from '../lib/recovery/passkey'
+import { recoveryReceiptIntent } from '../lib/recovery/evidence'
+import { enrollmentPreview, enrollmentTyped, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
+import { hashTypedData } from 'viem'
+const a=getAddress('0x1111111111111111111111111111111111111111'),b=getAddress('0x2222222222222222222222222222222222222222'),c=getAddress('0x3333333333333333333333333333333333333333'),d=getAddress('0x4444444444444444444444444444444444444444')
+const intent={chainId:11155111 as const,module:a,safe:b,newOwner:c,newThreshold:'1' as const,nonce:'3',moduleVersion:'0.2.0' as const}
+test('recovery protected requires onchain 3 distinct non-owner guardians and threshold two',()=> {
+  const s={enabled:true,owners:[a],spendingThreshold:1n,guardians:[b,c,d],threshold:2n}
+  assert.equal(isRecoveryProtected(s),true)
+  for(const v of [{...s,enabled:false},{...s,threshold:1n},{...s,guardians:[b,b,d]},{...s,guardians:[a,c,d]},{...s,owners:[a,b]}])assert.equal(isRecoveryProtected(v),false)
+})
+test('canonical intent rejects wrong chain, arbitrary fields, bad nonce and threshold',()=> {
+  assert.deepEqual(parseIntent(intent),intent)
+  for (const v of [{...intent,chainId:1},{...intent,newThreshold:'2'},{...intent,nonce:'-1'},{...intent,nonce:'03'},{...intent,nonce:(2n**256n).toString()},{...intent,extra:'injected'}])assert.throws(()=>parseIntent(v),/RECOVERY_INVALID_INTENT/)
+  for(const v of [{...intent,safe:c},{...intent,newOwner:d},{...intent,module:b},{...intent,nonce:'4'}])assert.notEqual(intentHash(v),intentHash(intent))
+})
+test('existing accepted Safe is blocked from all installation writes',()=>assert.throws(()=>assertDisposableSafe(EXISTING_SAFE),/APPROVAL/))
+test('delay variants produce different immutable contract bytecode hashes',()=>assert.notEqual(expectedModuleCodeHash(180),expectedModuleCodeHash(259200)))
+test('atomic installation keeps spending owners untouched and ends with threshold two',()=> {
+  const backup={role:'customer_backup' as const,rpId:'localhost',signer:b,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${'22'.repeat(32)}`,y:`0x${'33'.repeat(32)}`}}}
+  const calls=enrollmentCalls(a,{safe:d,backup,bank:c,third:a})
+  assert.equal(calls.length,4)
+  assert.ok(calls.every(call=>call.value==='0'))
+  assert.throws(()=>enrollmentCalls(a,{safe:d,backup,bank:b,third:a}),/DISTINCT/)
+  assert.deepEqual(Object.keys(validateCredential(backup)).sort(),['passkey','role','rpId','signer'])
+  assert.throws(()=>validateCredential({...backup,passkey:{...backup.passkey,customVerifierAddress:a}}),/INVALID_PUBLIC_CREDENTIAL/)
+})
+test('recovery sponsorship accepts only the exact trusted atomic batch',()=> {
+  const expected={to:a,value:'0',operation:1 as const,data:'0x1234' as const}
+  const validate=batchIntentValidator(expected)
+  const abi=parseAbi(['function executeUserOp(address,uint256,bytes,uint8)'])
+  const valid={sender:b,nonce:'0',initCode:'0x',callData:encodeFunctionData({abi,functionName:'executeUserOp',args:[a,0n,'0x1234',1]})}
+  assert.doesNotThrow(()=>validate(valid,b))
+  for(const args of [[c,0n,'0x1234',1],[a,1n,'0x1234',1],[a,0n,'0xabcd',1],[a,0n,'0x1234',0]] as const)assert.throws(()=>validate({...valid,callData:encodeFunctionData({abi,functionName:'executeUserOp',args})},b),/INTENT_MISMATCH/)
+})
+
+test('a proxy with the old shared-owner public key is rejected even with a different address',async()=> {
+  const credential={role:'replacement' as const,rpId:'localhost',signer:c,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${'22'.repeat(32)}`,y:`0x${'33'.repeat(32)}`}}}
+  const client={getChainId:async()=>11155111,readContract:async(v:{functionName:string})=>v.functionName==='getSigner'?c:{x:BigInt(credential.passkey.coordinates.x),y:BigInt(credential.passkey.coordinates.y),verifiers:0n}} as unknown as PublicClient
+  await assert.rejects(()=>verifyFreshCredential(client,b,[SHARED_SIGNER],[d],credential),/OLD_PUBLIC_KEY_REUSED/)
+  await assert.doesNotReject(()=>verifyFreshCredential(client,b,[a],[d],credential))
+  await assert.rejects(()=>verifyFreshCredential(client,b,[c],[d],credential),/NOT_DISTINCT/)
+})
+
+test('fresh browser reconstructs finalization intent only from matching successful module event',()=> {
+  const event=parseAbi(['event RecoveryFinalized(address indexed wallet,bytes32 indexed recoveryHash,address[] newOwners,uint256 newThreshold,uint256 nonce)'])
+  const log={address:a,topics:encodeEventTopics({abi:event,eventName:'RecoveryFinalized',args:{wallet:b,recoveryHash:intentHash(intent)}}),data:encodeAbiParameters([{type:'address[]'},{type:'uint256'},{type:'uint256'}],[[c],1n,3n])}
+  const receipt={status:'success',to:a,logs:[log]} as unknown as TransactionReceipt
+  assert.deepEqual(recoveryReceiptIntent(receipt,a,b,'RecoveryFinalized'),intent)
+  for(const changed of [{...receipt,status:'reverted'}, {...receipt,to:d}, {...receipt,logs:[]}, {...receipt,logs:[{...log,address:d}]}])assert.throws(()=>recoveryReceiptIntent(changed as TransactionReceipt,a,b,'RecoveryFinalized'),/EVIDENCE_MISMATCH/)
+  assert.throws(()=>recoveryReceiptIntent(receipt,a,b,'RecoveryFinalized',{...intent,newOwner:d}),/EVIDENCE_MISMATCH/)
+})
+
+test('third-party enrollment proof is bound to the complete configuration and cannot authorize recovery',async()=> {
+  const preview=enrollmentPreview({safe:b,module:a,delay:180} as never,c,d,a)
+  const proof={signer:a,signature:'0x1234' as const,intentHash:hashTypedData(enrollmentTyped(preview))}
+  const client={verifyTypedData:async()=>true} as unknown as PublicClient
+  await assert.doesNotReject(()=>verifyEnrollmentProof(client,preview,proof))
+  await assert.rejects(()=>verifyEnrollmentProof(client,{...preview,delay:259200},proof),/POSSESSION/)
+  await assert.rejects(()=>verifyEnrollmentProof(client,preview,{...proof,signer:d}),/POSSESSION/)
+  assert.notEqual(proof.intentHash,intentHash(intent))
+})

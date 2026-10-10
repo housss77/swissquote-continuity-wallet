@@ -10,6 +10,7 @@ type SponsorRequest = Parameters<PimlicoFeeEstimator['getPaymasterEstimation']>[
 type AdjustmentRequest = Parameters<PimlicoFeeEstimator['adjustEstimation']>[0]
 type UserOperation = SponsorRequest['userOperation']
 type Transaction = Parameters<Safe4337Pack['createTransaction']>[0]['transactions'][number]
+export type IntentValidator = (operation: UserOperation, safe: Address, transaction: Transaction) => void
 // This capability excludes both signing and broadcasting, including in the probe.
 type PreparationPack = Pick<Safe4337Pack, 'createTransaction' | 'getChainId'>
 const gasFields = ['callGasLimit', 'verificationGasLimit', 'preVerificationGas'] as const
@@ -130,7 +131,7 @@ class ValidatingPimlicoEstimator extends PimlicoFeeEstimator {
   request?: UserOperation
   estimation?: ReturnType<typeof validateSponsorResponse>['estimation']
   constructor(private safe: Address, private transaction: Transaction, private reads: SponsorshipReads,
-    private report: SponsorshipReport, private rpc: OperationRpc, private allowanceBps: number) {
+    private report: SponsorshipReport, private rpc: OperationRpc, private allowanceBps: number, private checkIntent:IntentValidator = validateIntent) {
     super()
     this.report.gasTrace = { adjustmentPolicy: 'bounded-verification', verificationAllowanceBps: allowanceBps, adjustments: [], traceComplete: false }
   }
@@ -151,7 +152,7 @@ class ValidatingPimlicoEstimator extends PimlicoFeeEstimator {
     if (props.paymasterUrl !== config.paymasterUrl || props.sponsorshipPolicyId !== config.sponsorshipPolicyId) throw new Error('SPONSORSHIP_PROVIDER_MISMATCH')
     if (props.entryPoint.toLowerCase() !== ENTRY_POINT.toLowerCase()) throw new Error('SPONSORSHIP_ENTRYPOINT_MISMATCH')
     this.report.checks.entryPoint = 'passed'
-    validateIntent(props.userOperation, this.safe, this.transaction)
+    this.checkIntent(props.userOperation, this.safe, this.transaction)
     this.report.checks.sender = 'passed'
     this.report.checks.intent = 'passed'
     this.report.gasTrace!.sponsorshipRequest = gasSnapshot(props.userOperation)
@@ -177,11 +178,11 @@ class ValidatingPimlicoEstimator extends PimlicoFeeEstimator {
 }
 
 export function validatePreparedBinding(operation: EthSafeOperation, request: UserOperation,
-  estimation: ReturnType<typeof validateSponsorResponse>['estimation'], safe: Address, transaction: Transaction) {
+  estimation: ReturnType<typeof validateSponsorResponse>['estimation'], safe: Address, transaction: Transaction, checkIntent:IntentValidator = validateIntent) {
   assertSepolia(operation.chainId)
   if (operation.data.entryPoint.toLowerCase() !== ENTRY_POINT.toLowerCase()) throw new Error('SPONSORSHIP_ENTRYPOINT_MISMATCH')
   const prepared = operation.toUserOperation()
-  validateIntent(prepared, safe, transaction)
+  checkIntent(prepared, safe, transaction)
   if (prepared.initCode.toLowerCase() !== request.initCode.toLowerCase() || BigInt(prepared.nonce) !== BigInt(request.nonce)
     || prepared.callData.toLowerCase() !== request.callData.toLowerCase()
     || prepared.paymasterAndData.toLowerCase() !== estimation.paymasterAndData.toLowerCase()) throw new Error('SPONSORSHIP_PREPARED_MISMATCH')
@@ -191,7 +192,7 @@ export function validatePreparedBinding(operation: EthSafeOperation, request: Us
 }
 
 export async function prepareSponsoredTransaction(pack: PreparationPack, safe: Address, transaction: Transaction,
-  reads: SponsorshipReads, report: SponsorshipReport = { checks: {}, valid: false }, rpc?: OperationRpc) {
+  reads: SponsorshipReads, report: SponsorshipReport = { checks: {}, valid: false }, rpc?: OperationRpc, checkIntent:IntentValidator = validateIntent) {
   const allowanceBps = verificationAllowanceBps()
   assertSepolia(BigInt(await pack.getChainId()))
   assertSepolia(await reads.getChainId())
@@ -199,11 +200,11 @@ export async function prepareSponsoredTransaction(pack: PreparationPack, safe: A
   report.preparation = { safeAddress: safe, chainId: 11155111, entryPoint: ENTRY_POINT, target: transaction.to as Address, valueWei: transaction.value }
   const { paymasterUrl } = providerConfig(true)
   const operationRpc: OperationRpc = rpc ?? ((method, params) => rpcRequest(paymasterUrl, method, params))
-  const estimator = new ValidatingPimlicoEstimator(safe, transaction, reads, report, operationRpc, allowanceBps)
+  const estimator = new ValidatingPimlicoEstimator(safe, transaction, reads, report, operationRpc, allowanceBps, checkIntent)
   const operation = await pack.createTransaction({ transactions: [{ ...transaction }], options: { feeEstimator: estimator } })
   if (!estimator.request || !estimator.estimation || !report.paymasterAddress) throw new Error('SPONSORSHIP_RESPONSE_MISSING')
   if (operation.signatures.size !== 0) throw new Error('SPONSORSHIP_UNEXPECTED_SIGNATURE')
-  validatePreparedBinding(operation, estimator.request, estimator.estimation, safe, transaction)
+  validatePreparedBinding(operation, estimator.request, estimator.estimation, safe, transaction, checkIntent)
   report.checks.preparedBinding = 'passed'
   const trace = report.gasTrace!
   trace.finalSerialized = gasSnapshot(userOperationToHexValues(operation.toUserOperation()))
@@ -236,7 +237,7 @@ export async function prepareSponsoredTransaction(pack: PreparationPack, safe: A
   if (!trace.verificationMarginPreserved) throw new Error('GAS_VERIFICATION_MARGIN_INSUFFICIENT')
   // Validate again after the read so an SDK mutation cannot pass the signing gate.
   if (operation.signatures.size !== 0) throw new Error('SPONSORSHIP_UNEXPECTED_SIGNATURE')
-  validatePreparedBinding(operation, estimator.request, estimator.estimation, safe, transaction)
+  validatePreparedBinding(operation, estimator.request, estimator.estimation, safe, transaction, checkIntent)
   report.valid = true
   return { operation, paymasterAddress: report.paymasterAddress, report }
 }

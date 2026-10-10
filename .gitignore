@@ -156,3 +156,6 @@ playwright-report/
 
 # Turbo Repo
 .turbo
+
+# Local public recovery registry and relayer acknowledgement records
+.recovery-data/

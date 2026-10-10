@@ -1,9 +1,15 @@
 # Swissquote Continuity Wallet — Safe/passkey viability spike
 
-This is the first, 60-minute technical spike for a solo 24-hour hackathon. It implements
-passkey creation/authentication → a passkey-controlled Safe → a sponsored ERC-4337
-operation on **Ethereum Sepolia only (11155111)**. Stop here: recovery and the complete
-continuity-wallet product are not implemented.
+This prototype implements passkey creation/authentication, a passkey-controlled
+Safe and sponsored ERC-4337 operations on **Ethereum Sepolia only (11155111)**.
+Step 1 was accepted with a verified real sponsored NFT mint:
+[0xe902724d042e41aa5577beaf1408da507199110ae2adf402ae2cd16b6f3edfef](https://sepolia.etherscan.io/tx/0xe902724d042e41aa5577beaf1408da507199110ae2adf402ae2cd16b6f3edfef).
+
+The `feat/recovery` implementation adds 2-of-3 social recovery using the unchanged
+Candide v0.2.0 module. See the [recovery design, setup, tests and threat model](docs/recovery-design.md).
+Recovery requires separate live acceptance evidence; local fork tests are not
+Sepolia transactions. The existing accepted Safe is blocked from recovery writes.
+Earlier spike diagnostics below describe their original evidence and limitations.
 
 ## Basis and pinned stack
 
@@ -30,7 +36,7 @@ after deployment to allow subsequent operations with the configured shared signe
 
 ## Exact setup and run commands
 
-Run from this repository in PowerShell. Keep branch `spike/safe-passkey`.
+Run from this repository in PowerShell. Recovery work stays on `feat/recovery`.
 
 ```powershell
 node --version
@@ -289,7 +295,8 @@ by the SDK sponsorship request when the user prepares an operation.
    without asserting a previously recorded provider address.
 10. Reload, click **Authenticate and connect Safe**, approve the original passkey, and
     verify the same deployed address. Optionally send another small operation to test
-    signing after deployment. This reconnects the same passkey; recovery is not implemented.
+    signing after deployment. This reconnects the same passkey; use the separate
+    recovery page and guide for recovery, exclusively on a disposable Safe.
     Report your real-authenticator result and public transaction/UserOperation hashes for review.
 
 **Confirmation timeout means unknown.** The public pending hash persists; sending is
@@ -358,9 +365,11 @@ and original sanitized error remain separate from later read-only lookup errors.
   migration is a separate decision, not a silent fallback.
 - Browser storage holds only public credential ID/coordinates and public pending metadata;
   the authenticator retains the private key. Keep the profile/origin and do not clear/edit
-  storage. Archived public attempts include sanitized errors; there is no recovery.
+  storage. Archived public attempts include sanitized errors; recovery has separate
+  public metadata/history and must first be enrolled onchain.
 - Two confirmations are not Ethereum finality. No production security review, multi-tab
-  transaction coordination, provider abuse-control backend, recovery, or hosting is included.
+  transaction coordination, provider abuse-control backend or hosting is included.
+  The recovery implementation remains a separate testnet prototype.
 - The tutorial uses an experimental shared passkey signer deployment flow; keep the pinned
   SDK/contract pairing and do not treat this spike as a production wallet.
 - Audit after compatible overrides: **6 low, 0 moderate, 0 high, 0 critical**. Remaining
@@ -414,9 +423,9 @@ the real-authenticator or live-transaction acceptance criteria.
 | F: builds | Successful `npm run build` |
 | G: Git/secrets | Status/diff, ignored local env, and source scan |
 
-**No live transaction hash is recorded here.** Live success remains unverified until the
-user signs and verifies it. Credentials, funds, browser interaction, and account approval
-cannot be invented or simulated as success.
+Step 1 live success is recorded at the top of this README. Recovery evidence is
+tracked separately; never invent credentials, funds, browser interaction or successful
+receipts. Automated virtual authenticators do not satisfy real-human passkey acceptance.
 
 ## Git hygiene
 

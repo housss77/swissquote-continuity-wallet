@@ -25,3 +25,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+# Candide Social Recovery Module
+
+`lib/recovery/artifact.json` contains compiled, unmodified Candide Solidity from
+https://github.com/candidelabs/candide-contracts at commit
+`d0959d28ae084a7d549bb2c12d04482653456c2c`.
+Author: CANDIDE Labs. Source SPDX identifier: GPL-3.0.
+The upstream license is included in [licenses/CANDIDE-GPL-3.0.txt](licenses/CANDIDE-GPL-3.0.txt).
+Pinned source hashes and the exact compiler/dependencies are recorded in the
+artifact and [recovery guide](docs/recovery-design.md). `npm run prepare:recovery-contract`
+reconstructs the artifact from the complete pinned source dependency graph.
+This project does not claim authorship of the upstream contract or its cryptography.

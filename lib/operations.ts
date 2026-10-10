@@ -7,7 +7,7 @@ export type PendingOperation = {
   userOperationHash: Hash
   safeAddress: Address
   paymasterAddress?: Address
-  kind: 'transfer' | 'mint'
+  kind: 'transfer' | 'mint' | 'recovery'
   description: string
   state: OperationState
   acceptance: Acceptance

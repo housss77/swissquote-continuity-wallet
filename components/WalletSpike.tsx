@@ -262,6 +262,7 @@ export default function WalletSpike() {
 
   return <main>
     <h1>Swissquote Continuity Wallet</h1>
+    <p><a href="/recovery">Secure recovery access or recover a wallet</a></p>
     <p>Safe + WebAuthn + sponsored ERC-4337 viability spike</p>
     <p className="notice">Ethereum Sepolia only · Chain ID {CHAIN_ID} · Testnet assets only</p>
     <p role="status" aria-live="polite">{status}</p>
@@ -281,7 +282,7 @@ export default function WalletSpike() {
       <p>Use Chrome or Edge on <code>http://localhost:3000</code>. Your authenticator retains the private key.</p>
       <button onClick={() => void connect(true)} disabled={!ready || !supported || busy || !!passkey || !!pending}>Create passkey and initialize Safe</button>
       {passkey && <button onClick={() => void connect(false)} disabled={!supported || busy}>Authenticate and connect Safe</button>}
-      {passkey && <p className="muted">Public credential metadata is saved in this browser. Keep this profile and hostname. Clearing browser data is outside this spike; recovery is not implemented.</p>}
+      {passkey && <p className="muted">Public credential metadata is saved in this browser. Keep this profile and hostname. Recovery requires separate onchain enrollment; registration and browser storage alone do not protect this wallet.</p>}
     </section>
 
     {wallet && <section>
