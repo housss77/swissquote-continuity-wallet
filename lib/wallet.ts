@@ -1,9 +1,13 @@
 import type { PasskeyArgType } from '@safe-global/protocol-kit'
 import { Safe4337Pack } from '@safe-global/relay-kit'
+import { userOperationToHexValues } from '@safe-global/relay-kit/dist/src/packs/safe-4337/utils'
 import { createPublicClient, getAddress, http, isAddress, type Address, type Hash, type Hex } from 'viem'
 import { getUserOperationHash } from 'viem/account-abstraction'
 import { assertSepolia, CHAIN, CHAIN_ID, ENTRY_POINT, PAYMASTER_ADDRESS, PENDING_KEY, providerConfig, RPC_URL } from './constants'
 import { verifyReceipt } from './proof'
+import { diagnose, scrubMessage, type Diagnostic } from './diagnostics'
+import { broadcastOperation, inspectOperation, isHash, pollOperation, rpcRequest, type BundlerReceipt, type PendingOperation } from './operations'
+export type { PendingOperation } from './operations'
 
 export const publicClient = createPublicClient({
   chain: CHAIN,
@@ -11,26 +15,9 @@ export const publicClient = createPublicClient({
 })
 
 export type WalletSnapshot = { address: Address; balance: bigint; deployed: boolean; owner: Address }
-export type PendingOperation = {
-  userOperationHash: Hash
-  safeAddress: Address
-  kind: 'transfer' | 'mint'
-  description: string
-}
-
 async function bundlerRpc<T>(method: string, params: unknown[] = []): Promise<T> {
   const { bundlerUrl } = providerConfig()
-  const response = await fetch(bundlerUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(12_000),
-  })
-  if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'API_KEY_REJECTED 401' : 'RPC_NETWORK')
-  const body = await response.json() as { result?: T; error?: { message?: string } }
-  if (body.error) throw new Error(body.error.message || 'BUNDLER_FAILURE')
-  if (!('result' in body)) throw new Error('BUNDLER_FAILURE')
-  return body.result as T
+  return (await rpcRequest<T>(bundlerUrl, method, params)).result
 }
 
 export async function checkNetworks() {
@@ -119,51 +106,77 @@ export function loadPending(): PendingOperation | null {
   try {
     const raw = localStorage.getItem(PENDING_KEY)
     if (!raw) return null
-    const data = JSON.parse(raw) as PendingOperation
+    const data = JSON.parse(raw) as PendingOperation | null
+    if (!data) return null
     if (!/^0x[a-fA-F0-9]{64}$/.test(data.userOperationHash) || !isAddress(data.safeAddress)
       || !['mint', 'transfer'].includes(data.kind) || typeof data.description !== 'string') throw new Error('STORED_DATA')
-    return data
+    const states = ['prepared', 'broadcasting', 'accepted', 'included', 'rejected', 'failed', 'unknown']
+    // Old records have no evidence of acceptance. Reload never resumes a send.
+    const state = states.includes(data.state) && !['broadcasting', 'included'].includes(data.state) ? data.state : 'unknown'
+    const acceptance = ['no', 'yes', 'unknown'].includes(data.acceptance) ? data.acceptance : 'unknown'
+    const cleanDiagnostic = (value?: Diagnostic): Diagnostic | undefined => value && typeof value.message === 'string'
+      ? { ...diagnose({ message: value.message, code: value.rpcCode, status: value.httpStatus }, value.stage, value.acceptance), at: value.at, sdkCode: value.sdkCode ? scrubMessage(value.sdkCode) : undefined }
+      : undefined
+    return {
+      userOperationHash: data.userOperationHash, safeAddress: data.safeAddress, kind: data.kind,
+      description: data.description, state, acceptance, createdAt: data.createdAt,
+      acknowledgement: data.acknowledgement && isHash(data.acknowledgement.hash)
+        ? { hash: data.acknowledgement.hash, at: data.acknowledgement.at, httpStatus: data.acknowledgement.httpStatus } : undefined,
+      transactionHash: isHash(data.transactionHash) ? data.transactionHash : undefined,
+      submissionError: cleanDiagnostic(data.submissionError), lastError: cleanDiagnostic(data.lastError),
+      checkErrors: Array.isArray(data.checkErrors) ? data.checkErrors.map(cleanDiagnostic).filter((value): value is Diagnostic => !!value) : undefined,
+      lastCheckedAt: data.lastCheckedAt, checks: data.checks,
+    }
   } catch { throw new Error('STORED_DATA') }
 }
 
-export function clearPending() {
-  try { localStorage.removeItem(PENDING_KEY) }
+export function archivePending(pending: PendingOperation) {
+  // Retain the attempt and its errors; never delete any credential or attempt.
+  try {
+    const key = `${PENDING_KEY}-history`
+    const history = JSON.parse(localStorage.getItem(key) || '[]') as PendingOperation[]
+    if (!Array.isArray(history)) throw new Error('STORED_DATA')
+    localStorage.setItem(key, JSON.stringify([...history, pending]))
+    localStorage.setItem(PENDING_KEY, 'null')
+  }
   catch { throw new Error('STORED_DATA') }
 }
 
-export async function confirmOperation(pending: PendingOperation, onTransaction: (hash: Hash) => void) {
-  await checkNetworks()
-  const deadline = Date.now() + 120_000
-  while (Date.now() < deadline) {
-    const result = await bundlerRpc<{
-      userOpHash: string
-      sender: string
-      success: boolean
-      receipt: { transactionHash: string }
-    } | null>('eth_getUserOperationReceipt', [pending.userOperationHash])
-    if (result) {
-      if (result.userOpHash.toLowerCase() !== pending.userOperationHash.toLowerCase()
-        || result.sender.toLowerCase() !== pending.safeAddress.toLowerCase()
-        || !/^0x[a-fA-F0-9]{64}$/.test(result.receipt.transactionHash)) throw new Error('EVIDENCE_MISMATCH')
-      const hash = result.receipt.transactionHash as Hash
-      onTransaction(hash)
-      // Independently query the chain; never trust a bundler's success flag.
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash,
-        confirmations: 2,
-        timeout: Math.max(1, deadline - Date.now()),
-      }).catch((error: unknown) => {
-        if ((error as { name?: string })?.name === 'WaitForTransactionReceiptTimeoutError') throw new Error('CONFIRMATION_TIMEOUT')
-        throw error
-      })
-      if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error('EVIDENCE_MISMATCH')
-      const proof = verifyReceipt(receipt, pending.userOperationHash, pending.safeAddress)
-      if (!result.success) throw new Error('EVIDENCE_MISMATCH')
-      const code = await publicClient.getCode({ address: pending.safeAddress, blockNumber: receipt.blockNumber })
-      if (!code || code === '0x') throw new Error('EVIDENCE_MISMATCH')
-      return proof
-    }
-    await new Promise(resolve => setTimeout(resolve, 3_000))
+export async function submitOperation(signed: Awaited<ReturnType<Safe4337Pack['signSafeOperation']>>, pending: PendingOperation, update: (value: PendingOperation) => void) {
+  const { bundlerUrl } = providerConfig(true)
+  // Relay Kit 3.1.0 executeTransaction does exactly this RPC with this SDK serializer.
+  // Keep SDK preparation/signing intact; use one observable, non-retrying POST.
+  const params = [userOperationToHexValues(signed.toUserOperation()), ENTRY_POINT]
+  return broadcastOperation(pending, () => rpcRequest<Hash>(bundlerUrl, 'eth_sendUserOperation', params), update)
+}
+
+export async function verifyOperationInclusion(pending: PendingOperation, result: BundlerReceipt | null, remainingMs: number) {
+  const hash = result?.receipt.transactionHash || pending.transactionHash
+  if (!isHash(hash)) throw new Error('EVIDENCE_MISMATCH')
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 2, timeout: remainingMs })
+    .catch((error: unknown) => {
+      if ((error as { name?: string })?.name === 'WaitForTransactionReceiptTimeoutError') throw new Error('CONFIRMATION_TIMEOUT')
+      throw error
+    })
+  if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error('EVIDENCE_MISMATCH')
+  const proof = verifyReceipt(receipt, pending.userOperationHash, pending.safeAddress)
+  if (result && !result.success) throw new Error('EVIDENCE_MISMATCH')
+  const code = await publicClient.getCode({ address: pending.safeAddress, blockNumber: receipt.blockNumber })
+  if (!code || code === '0x') throw new Error('EVIDENCE_MISMATCH')
+  return proof
+}
+
+export async function confirmOperation(pending: PendingOperation, update: (value: PendingOperation) => void) {
+  try {
+    await checkNetworks()
+    const { bundlerUrl } = providerConfig()
+    return await pollOperation(pending, {
+      inspect: value => inspectOperation(value, (method, params) => rpcRequest(bundlerUrl, method, params), ENTRY_POINT),
+      verify: verifyOperationInclusion,
+      update,
+    })
+  } catch (error) {
+    update({ ...pending, state: 'unknown', lastError: diagnose(error, 'confirm', pending.acceptance) })
+    return null
   }
-  throw new Error('CONFIRMATION_TIMEOUT')
 }

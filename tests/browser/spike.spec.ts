@@ -53,3 +53,40 @@ test('virtual authenticator stores public metadata even when the network fails',
   await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
   await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId })
 })
+
+test('legacy pending metadata is labelled unknown with no submission acknowledgement', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('continuity-wallet-sepolia-pending-v1', JSON.stringify({
+      userOperationHash: `0x${'11'.repeat(32)}`, safeAddress: '0x1111111111111111111111111111111111111111', kind: 'mint', description: 'Legacy unit fixture',
+    }))
+  })
+  await page.goto('/')
+  await expect(page.getByText('Unknown/unresolved; acceptance or confirmation is uncertain.')).toBeVisible()
+  await expect(page.getByText('No submission acknowledgement recorded.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create passkey and initialize Safe' })).toBeDisabled()
+})
+
+test('read-only checks preserve submission diagnostics and never broadcast', async ({ page }) => {
+  let broadcasts = 0
+  await page.addInitScript(() => {
+    localStorage.setItem('continuity-wallet-sepolia-pending-v1', JSON.stringify({
+      userOperationHash: `0x${'11'.repeat(32)}`, safeAddress: '0x1111111111111111111111111111111111111111', kind: 'mint', description: 'Rejected unit fixture', state: 'rejected', acceptance: 'no',
+      submissionError: { stage: 'submit', at: '2026-01-01T00:00:00Z', message: 'AA24 signature error', httpStatus: 200, rpcCode: -32507, acceptance: 'no' },
+    }))
+  })
+  await page.route('**/*', async route => {
+    if (new URL(route.request().url()).hostname === 'localhost') return route.continue()
+    const body = route.request().postDataJSON() as { id: number; method: string }
+    if (body.method === 'eth_sendUserOperation') broadcasts++
+    const result = body.method === 'eth_chainId' ? '0xaa36a7' : body.method === 'pimlico_getUserOperationStatus' ? { status: 'not_found', transactionHash: null } : null
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jsonrpc: '2.0', id: body.id, result }) })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Check pending operation' }).click()
+  await expect(page.getByText('Latest read-only checks:', { exact: false })).toBeVisible()
+  await expect(page.getByText('AA24 signature error', { exact: true })).toBeVisible()
+  await expect(page.getByText('-32507', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
+  expect(broadcasts).toBe(0)
+})

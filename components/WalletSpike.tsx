@@ -4,12 +4,35 @@ import { useEffect, useRef, useState } from 'react'
 import type { PasskeyArgType } from '@safe-global/protocol-kit'
 import type { Safe4337Pack } from '@safe-global/relay-kit'
 import { formatEther, type Hash } from 'viem'
-import { CHAIN_ID, EXPLORER, NFT_ADDRESS } from '../lib/constants'
+import { CHAIN_ID, EXPLORER, NFT_ADDRESS, PAYMASTER_ADDRESS, providerConfig } from '../lib/constants'
+import { diagnose, type Diagnostic } from '../lib/diagnostics'
 import { friendlyError, type Stage } from '../lib/errors'
 import { assertPasskeySupport, authenticatePasskey, createPasskey, loadPasskey, savePasskey } from '../lib/passkeys'
 import type { ConfirmedProof } from '../lib/proof'
 import { mintTransaction, transferTransaction } from '../lib/transactions'
-import { checkNetworks, clearPending, confirmOperation, initializeWallet, loadPending, operationHash, publicClient, savePending, walletSnapshot, type PendingOperation, type WalletSnapshot } from '../lib/wallet'
+import { archivePending, checkNetworks, confirmOperation, initializeWallet, loadPending, operationHash, publicClient, savePending, submitOperation, walletSnapshot, type PendingOperation, type WalletSnapshot } from '../lib/wallet'
+
+const lifecycleText = {
+  prepared: 'Prepared locally; no broadcast yet.',
+  broadcasting: 'Broadcasting once; awaiting bundler acknowledgement.',
+  accepted: 'Accepted by bundler; onchain success still unverified.',
+  included: 'Included onchain and independently verified.',
+  rejected: 'Rejected; no successful operation verified.',
+  failed: 'Failed; no successful operation verified.',
+  unknown: 'Unknown/unresolved; acceptance or confirmation is uncertain.',
+}
+
+function DiagnosticDisplay({ value }: { value: Diagnostic }) {
+  return <dl>
+    <dt>Stage</dt><dd>{value.stage}</dd>
+    <dt>Time (UTC)</dt><dd>{value.at}</dd>
+    <dt>HTTP status</dt><dd>{value.httpStatus ?? 'Unavailable (SDK/local/transport error)'}</dd>
+    <dt>JSON-RPC error code</dt><dd>{value.rpcCode ?? 'Unavailable'}</dd>
+    {value.sdkCode && <><dt>SDK error code</dt><dd>{value.sdkCode}</dd></>}
+    <dt>Sanitized message</dt><dd>{value.message}</dd>
+    <dt>May have been accepted</dt><dd>{value.acceptance === 'yes' ? 'Yes: acceptance evidence exists' : value.acceptance === 'no' ? 'No: not sent or explicitly rejected' : 'Unknown: preserve this attempt'}</dd>
+  </dl>
+}
 
 export default function WalletSpike() {
   const [ready, setReady] = useState(false)
@@ -23,11 +46,13 @@ export default function WalletSpike() {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('Create a passkey to begin.')
   const [error, setError] = useState('')
+  const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null)
   const [kind, setKind] = useState<'transfer' | 'mint'>('mint')
   const [recipient, setRecipient] = useState('')
   const [amount, setAmount] = useState('0.00001')
   const packRef = useRef<Safe4337Pack | null>(null)
   const lock = useRef(false)
+  const pendingRef = useRef<PendingOperation | null>(null)
 
   useEffect(() => {
     setReady(true)
@@ -36,7 +61,9 @@ export default function WalletSpike() {
       setSupported(true)
       const stored = loadPasskey()
       setPasskey(stored)
-      setPending(loadPending())
+      const operation = loadPending()
+      pendingRef.current = operation
+      setPending(operation)
       if (stored) setStatus('Saved public passkey metadata found. Authenticate to connect your Safe.')
     } catch (cause) { setError(friendlyError(cause, 'passkey')) }
   }, [])
@@ -88,14 +115,26 @@ export default function WalletSpike() {
     finally { setBusy(false); lock.current = false }
   }
 
+  function recordOperation(operation: PendingOperation) {
+    pendingRef.current = operation
+    setPending(operation)
+    setStatus(lifecycleText[operation.state])
+    if (operation.transactionHash) setIncludedHash(operation.transactionHash)
+    savePending(operation)
+  }
+
   async function finish(operation: PendingOperation) {
     setStatus('Waiting for inclusion and two Sepolia block confirmations…')
-    const verified = await confirmOperation(operation, setIncludedHash)
+    const verified = await confirmOperation(operation, recordOperation)
+    if (!verified) {
+      const latest = pendingRef.current?.lastError
+      if (latest) setError(friendlyError(new Error(latest.message), latest.stage))
+      return
+    }
     setProof(verified)
     setResultDescription(operation.description)
     setStatus('Onchain operation verified with two block confirmations.')
-    try { clearPending(); setPending(null) }
-    catch (cause) { setError(friendlyError(cause, 'confirm')) }
+    // Keep the verified public record. Only a manual archive enables another send.
     // A refresh failure cannot change the already verified transaction result.
     if (packRef.current && passkey) {
       try {
@@ -115,10 +154,12 @@ export default function WalletSpike() {
     lock.current = true
     setBusy(true)
     setError('')
+    setDiagnostic(null)
     setProof(null)
     setIncludedHash(null)
     let stage: Stage = 'prepare'
     try {
+      providerConfig(true) // Missing policy blocks preparation before a passkey prompt.
       await checkNetworks()
       const balance = await publicClient.getBalance({ address: wallet.address })
       let transaction
@@ -135,23 +176,36 @@ export default function WalletSpike() {
       }
       setStatus('Estimating the UserOperation and requesting sponsorship…')
       const operation = await pack.createTransaction({ transactions: [transaction] })
+      const sponsor = operation.toUserOperation().paymasterAndData
+      if (!/^0x[a-fA-F0-9]+$/.test(sponsor) || sponsor.length <= 42) throw new Error('SPONSORSHIP_MISSING_DATA')
+      if (!sponsor.toLowerCase().startsWith(PAYMASTER_ADDRESS.toLowerCase())) throw new Error('SPONSORSHIP_UNEXPECTED_PAYMASTER')
       stage = 'sign'
-      setStatus('Approve the transaction-bound passkey signature in your browser.')
+      setStatus('Prepared locally. Approve the transaction-bound passkey signature in your browser.')
       const signed = await pack.signSafeOperation(operation)
-      // Persist the deterministic hash before broadcasting. An ambiguous network
-      // failure can be checked after reload without submitting a duplicate.
+      // Keep the local hash for ambiguous network failures, never as acceptance proof.
       const hash = operationHash(signed.toUserOperation())
-      const next: PendingOperation = { userOperationHash: hash, safeAddress: wallet.address, kind, description }
-      savePending(next)
-      setPending(next)
+      const next: PendingOperation = { userOperationHash: hash, safeAddress: wallet.address, kind, description, state: 'prepared', acceptance: 'no', createdAt: new Date().toISOString() }
+      recordOperation(next)
       stage = 'submit'
-      setStatus('Submitting the signed sponsored UserOperation to Pimlico…')
-      const returnedHash = await pack.executeTransaction({ executable: signed })
-      if (returnedHash.toLowerCase() !== hash.toLowerCase()) throw new Error('EVIDENCE_MISMATCH')
+      const submitted = await submitOperation(signed, next, recordOperation)
+      if (submitted.state !== 'accepted') {
+        if (submitted.submissionError) setError(friendlyError(new Error(submitted.submissionError.message), 'submit'))
+        return
+      }
       stage = 'confirm'
-      await finish(next)
+      await finish(submitted)
     } catch (cause) {
       setError(friendlyError(cause, stage))
+      const acceptance = pendingRef.current?.acceptance || 'no'
+      const details = diagnose(cause, stage, acceptance)
+      setDiagnostic(details)
+      if (pendingRef.current) {
+        const latest = { ...pendingRef.current, state: 'unknown' as const, lastError: details,
+          ...(stage === 'submit' ? { submissionError: details } : {}) }
+        pendingRef.current = latest
+        setPending(latest)
+        try { savePending(latest) } catch { /* Show the storage error without broadcasting again. */ }
+      }
       setStatus('Operation has not been verified as successful.')
     } finally { setBusy(false); lock.current = false }
   }
@@ -161,17 +215,19 @@ export default function WalletSpike() {
     lock.current = true
     setBusy(true)
     setError('')
+    setProof(null)
     try { await finish(pending) }
     catch (cause) {
       setError(friendlyError(cause, 'confirm'))
+      setDiagnostic(diagnose(cause, 'confirm', pendingRef.current?.acceptance || 'unknown'))
       setStatus('Operation has not been verified as successful.')
     } finally { setBusy(false); lock.current = false }
   }
 
   function dismissPending() {
     if (!pending || busy) return
-    if (!window.confirm('Only dismiss after Pimlico confirms this operation was rejected/dropped, or the explorer shows it failed. Dismissing an unresolved operation can allow a duplicate transfer. Continue?')) return
-    try { clearPending(); setPending(null); setIncludedHash(null) }
+    if (!window.confirm('This preserves the attempt in local history and enables a MANUAL new attempt; it does not send anything. Check Pimlico and Sepolia first. not_found or timeout does not prove rejection. An unresolved attempt could still execute, so a new attempt may duplicate the mint or transfer. Continue only if you have reviewed and accept this risk.')) return
+    try { archivePending(pending); pendingRef.current = null; setPending(null); setIncludedHash(null); setDiagnostic(null); setError(''); setStatus('Previous attempt preserved. A new operation requires an explicit click and passkey approval.') }
     catch (cause) { setError(friendlyError(cause, 'confirm')) }
   }
 
@@ -181,6 +237,7 @@ export default function WalletSpike() {
     <p className="notice">Ethereum Sepolia only · Chain ID {CHAIN_ID} · Testnet assets only</p>
     <p role="status" aria-live="polite">{status}</p>
     {error && <p role="alert">{error}</p>}
+    {diagnostic && <section aria-label="Attempt diagnostic"><h2>Attempt diagnostic</h2><DiagnosticDisplay value={diagnostic} /></section>}
 
     <section>
       <h2>1. Create or authenticate a passkey</h2>
@@ -223,13 +280,20 @@ export default function WalletSpike() {
     {pending && <section>
       <h2>Pending or unresolved operation</h2>
       <p>{pending.description}</p>
-      <p>UserOperation hash (not a transaction hash): <code>{pending.userOperationHash}</code></p>
-      <p>No success has been claimed. This operation might already have been submitted; check it before sending again.</p>
+      <p><strong>{lifecycleText[pending.state]}</strong></p>
+      <p>Locally computed UserOperation hash (not proof of acceptance): <code>{pending.userOperationHash}</code></p>
+      {pending.acknowledgement ? <p>Submission acknowledgement: <code>{pending.acknowledgement.hash}</code> · HTTP {pending.acknowledgement.httpStatus} · {pending.acknowledgement.at}</p>
+        : <p>No submission acknowledgement recorded. Legacy attempts cannot recover their original submission response.</p>}
+      <p>Bundler acceptance evidence: {pending.acceptance === 'yes' ? 'Yes' : pending.acceptance === 'no' ? 'No' : 'Unknown'}. A UserOperation hash is not a transaction hash.</p>
+      {pending.checks && <p>Latest read-only checks: receipt {pending.checks.receipt}; by hash {pending.checks.byHash}; Pimlico status {pending.checks.status}. Checked {pending.lastCheckedAt}.</p>}
+      {pending.submissionError && <div><h3>Preserved submission error</h3><DiagnosticDisplay value={pending.submissionError} /></div>}
+      {pending.lastError && pending.lastError.at !== pending.submissionError?.at && <div><h3>Latest check error</h3><DiagnosticDisplay value={pending.lastError} /></div>}
+      {pending.checkErrors?.map((value, index) => <div key={index}><h3>Preserved provider lookup error</h3><DiagnosticDisplay value={value} /></div>)}
       <button onClick={() => void checkPending()} disabled={busy}>Check pending operation</button>
-      <button onClick={dismissPending} disabled={busy}>Dismiss after confirming rejection or failure</button>
+      <button onClick={dismissPending} disabled={busy}>Preserve attempt and enable manual retry</button>
     </section>}
 
-    {includedHash && !proof && <p>Bundler-reported inclusion, verification incomplete: <a href={`${EXPLORER}/tx/${includedHash}`} target="_blank" rel="noreferrer">Inspect transaction on Sepolia</a></p>}
+    {includedHash && !proof && <p>Bundler-reported transaction hash, verification incomplete: <a href={`${EXPLORER}/tx/${includedHash}`} target="_blank" rel="noreferrer">Inspect transaction on Sepolia</a></p>}
     {proof && <section className="success">
       <h2>Confirmed onchain</h2>
       <p>{resultDescription}</p>

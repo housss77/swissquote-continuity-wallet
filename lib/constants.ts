@@ -11,9 +11,11 @@ export const EXPLORER = 'https://sepolia.etherscan.io'
 export const STORAGE_KEY = 'continuity-wallet-sepolia-passkey-v1'
 export const PENDING_KEY = 'continuity-wallet-sepolia-pending-v1'
 
-export function providerConfig() {
+export function providerConfig(requireSponsorship = false) {
   const apiKey = process.env.NEXT_PUBLIC_PIMLICO_API_KEY?.trim()
   if (!apiKey) throw new Error('MISSING_PIMLICO_KEY')
+  const sponsorshipPolicyId = process.env.NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID?.trim()
+  if (requireSponsorship && !sponsorshipPolicyId) throw new Error('MISSING_SPONSORSHIP_POLICY')
   const query = new URLSearchParams({ apikey: apiKey })
   query.set('add_balance_override', 'true')
   return {
@@ -21,7 +23,7 @@ export function providerConfig() {
     // Pimlico v2 supports the same EntryPoint 0.6 JSON-RPC methods.
     bundlerUrl: `https://api.pimlico.io/v2/sepolia/rpc?${query}`,
     paymasterUrl: `https://api.pimlico.io/v2/sepolia/rpc?${query}`,
-    sponsorshipPolicyId: process.env.NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID?.trim() || undefined,
+    sponsorshipPolicyId,
   }
 }
 

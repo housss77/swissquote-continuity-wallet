@@ -16,6 +16,7 @@ export function friendlyError(error: unknown, stage: Stage): string {
   if (/insecure_context|securityerror/.test(text)) return 'Passkeys require a secure context. Open http://localhost:3000 in Chrome or Edge; keep the same hostname for this credential.'
   if (/notallowederror|aborterror/.test(text) && ['passkey', 'authenticate', 'sign'].includes(stage)) return 'The passkey request was cancelled, rejected, or timed out. Unlock your authenticator and retry.'
   if (/missing_pimlico_key/.test(text)) return 'Set NEXT_PUBLIC_PIMLICO_API_KEY in .env.local, enable Sepolia sponsorship in Pimlico, and restart the app.'
+  if (/missing_sponsorship_policy/.test(text)) return 'Set NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID to an active Sepolia sponsorship policy in .env.local and restart before signing.'
   if (/wrong_chain/.test(text)) return 'Network check failed: the RPC or bundler is not Ethereum Sepolia (11155111). Operation blocked.'
   if (/insufficient_funds|insufficient funds/.test(text)) return 'The Safe lacks Sepolia ETH for this transfer. Sponsorship pays gas only. Fund the displayed Safe address or choose the unfunded NFT mint.'
   if (/invalid_recipient/.test(text)) return 'Enter a valid, nonzero recipient address different from this Safe.'
