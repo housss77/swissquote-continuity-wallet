@@ -1,3 +1,4 @@
+.env.local
 # Logs
 logs
 *.log
@@ -144,6 +145,13 @@ vite.config.ts.timestamp-*
 
 # Astro generated types
 .astro/
+
+# Local spike output and browser reports (may contain public wallet metadata)
+.dist/
+test-results/
+playwright-report/
+.env*
+!.env.example
 
 # Turbo Repo
 .turbo
