@@ -64,11 +64,15 @@ async function isolatedCustomer() {
 async function uiClick(page,name) {
   await expect(page.getByRole('button',{name,exact:true})).toBeEnabled({timeout:30000})
   await page.getByRole('button',{name,exact:true}).click() // ONE explicit click; no retries.
-  await page.waitForTimeout(200)
+  await page.waitForTimeout(300)
   const idle=page.url().includes('/recovery')?'Refresh recovery state':'Authenticate and connect Safe'
-  await expect(page.getByRole('button',{name:idle,exact:true})).toBeEnabled({timeout:180000})
-  const error=(await page.getByRole('main').getByRole('alert').allTextContents()).map(v=>v.trim()).filter(Boolean)
-  if(error.length)throw new Error(`LIVE_UI_ERROR: ${error.join(' ').slice(0,500)}`)
+  for(let i=0;i<180;i++) {
+    const error=(await page.getByRole('main').getByRole('alert').allTextContents()).map(v=>v.trim()).filter(Boolean)
+    if(error.length)throw new Error(`LIVE_UI_ERROR: ${error.join(' ').slice(0,500)}`)
+    if(await page.getByRole('button',{name:idle,exact:true}).isEnabled().catch(()=>false))return
+    await page.waitForTimeout(1000)
+  }
+  throw new Error('LIVE_UI_TIMEOUT_CHECK_PUBLIC_ATTEMPT_BEFORE_RETRY')
 }
 async function confirmedNative(page,kind) {
   const section=page.locator('section').filter({has:page.getByRole('heading',{name:'Relayer submission',exact:true})})

@@ -1,4 +1,4 @@
-import { hashDomain, keccak256, type Address, type PublicClient } from 'viem'
+import { domainSeparator, keccak256, type Address, type PublicClient } from 'viem'
 import { assertSepolia } from '../constants'
 import { address, expectedModuleCodeHash, moduleConfig, recoveryAbi, safeAbi } from './contracts'
 import type { RecoveryState } from './types'
@@ -11,7 +11,9 @@ export async function verifyModule(client:PublicClient) {
   const version=await client.readContract({address:config.module,abi:recoveryAbi,functionName:'VERSION'})
   if (version!=='0.2.0') throw new Error('RECOVERY_MODULE_VERSION_MISMATCH')
   const domain=await client.readContract({address:config.module,abi:recoveryAbi,functionName:'domainSeparator'})
-  if (domain!==hashDomain({domain:{name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:config.module}})) throw new Error('RECOVERY_MODULE_DOMAIN_MISMATCH')
+  const expectedDomain={name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:config.module}
+  // viem's public wrapper generates the required EIP712Domain types.
+  if (domain!==domainSeparator({domain:expectedDomain})) throw new Error('RECOVERY_MODULE_DOMAIN_MISMATCH')
   return config
 }
 export async function recoveryState(client:PublicClient,safeValue:string):Promise<RecoveryState> {

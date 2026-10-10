@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { encodeFunctionData, encodeEventTopics, encodeAbiParameters, parseAbi, getAddress, type PublicClient, type TransactionReceipt } from 'viem'
-import { assertDisposableSafe, expectedModuleCodeHash, EXISTING_SAFE, SHARED_SIGNER } from '../lib/recovery/contracts'
-import { isRecoveryProtected } from '../lib/recovery/onchain'
+import { assertDisposableSafe, expectedModuleCodeHash, expectedModuleCode, EXISTING_SAFE, SHARED_SIGNER } from '../lib/recovery/contracts'
+import { isRecoveryProtected, verifyModule } from '../lib/recovery/onchain'
+import { TypedDataEncoder } from 'ethers'
 import { intentHash, parseIntent } from '../lib/recovery/signatures'
 import { batchIntentValidator, enrollmentCalls } from '../lib/recovery/enrollment'
 import { validateCredential, verifyFreshCredential } from '../lib/recovery/passkey'
@@ -23,6 +24,21 @@ test('canonical intent rejects wrong chain, arbitrary fields, bad nonce and thre
 })
 test('existing accepted Safe is blocked from all installation writes',()=>assert.throws(()=>assertDisposableSafe(EXISTING_SAFE),/APPROVAL/))
 test('delay variants produce different immutable contract bytecode hashes',()=>assert.notEqual(expectedModuleCodeHash(180),expectedModuleCodeHash(259200)))
+
+test('module verification supplies explicit viem EIP712Domain types and checks the onchain separator',async()=> {
+  const previousModule=process.env.NEXT_PUBLIC_RECOVERY_MODULE_ADDRESS,previousDelay=process.env.NEXT_PUBLIC_RECOVERY_DELAY_SECONDS
+  process.env.NEXT_PUBLIC_RECOVERY_MODULE_ADDRESS=a;process.env.NEXT_PUBLIC_RECOVERY_DELAY_SECONDS='180'
+  try {
+    let separator=TypedDataEncoder.hashDomain({name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:a})
+    const client={getChainId:async()=>11155111,getCode:async()=>expectedModuleCode(180),readContract:async(v:{functionName:string})=>v.functionName==='VERSION'?'0.2.0':separator} as unknown as PublicClient
+    assert.deepEqual(await verifyModule(client),{module:a,delay:180})
+    separator=`0x${'11'.repeat(32)}`
+    await assert.rejects(()=>verifyModule(client),/DOMAIN_MISMATCH/)
+  } finally {
+    if(previousModule===undefined)delete process.env.NEXT_PUBLIC_RECOVERY_MODULE_ADDRESS;else process.env.NEXT_PUBLIC_RECOVERY_MODULE_ADDRESS=previousModule
+    if(previousDelay===undefined)delete process.env.NEXT_PUBLIC_RECOVERY_DELAY_SECONDS;else process.env.NEXT_PUBLIC_RECOVERY_DELAY_SECONDS=previousDelay
+  }
+})
 test('atomic installation keeps spending owners untouched and ends with threshold two',()=> {
   const backup={role:'customer_backup' as const,rpId:'localhost',signer:b,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${'22'.repeat(32)}`,y:`0x${'33'.repeat(32)}`}}}
   const calls=enrollmentCalls(a,{safe:d,backup,bank:c,third:a})
