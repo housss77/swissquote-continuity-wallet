@@ -16,7 +16,9 @@ if(process.argv[2]!=='--disposable-sepolia-only')throw new Error('Explicit --dis
 execFileSync('git',['check-ignore','-q','.env.local'],{stdio:'pipe'})
 process.loadEnvFile('.env.local')
 const forbidden='0x6f7c9faba9b6039255f2301935d891ffe6065e8c'
-const evidenceFile='.recovery-data/live-recovery-test.json'
+const runLabel=process.argv[3]
+if(runLabel && !/^[a-z0-9-]{1,40}$/.test(runLabel))throw new Error('Invalid public test run label')
+const evidenceFile=runLabel?`.recovery-data/live-recovery-test-${runLabel}.json`:'.recovery-data/live-recovery-test.json'
 try {await fs.access(evidenceFile);throw new Error('EXISTING_LIVE_TEST_RECORD_REVIEW_BEFORE_ANOTHER_TEST')}catch(e){if(e.code!=='ENOENT')throw e}
 const rpc=process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'
 const client=createPublicClient({chain:sepolia,transport:http(rpc,{timeout:15000,retryCount:0})})
@@ -65,7 +67,7 @@ async function uiClick(page,name) {
   await page.waitForTimeout(200)
   const idle=page.url().includes('/recovery')?'Refresh recovery state':'Authenticate and connect Safe'
   await expect(page.getByRole('button',{name:idle,exact:true})).toBeEnabled({timeout:180000})
-  const error=await page.getByRole('alert').allTextContents()
+  const error=(await page.getByRole('main').getByRole('alert').allTextContents()).map(v=>v.trim()).filter(Boolean)
   if(error.length)throw new Error(`LIVE_UI_ERROR: ${error.join(' ').slice(0,500)}`)
 }
 async function confirmedNative(page,kind) {
