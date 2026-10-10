@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
-import { EthSafeOperation, type PimlicoFeeEstimator, type Safe4337Pack } from '@safe-global/relay-kit'
+import { createServer } from 'node:http'
+import { EthSafeOperation, Safe4337Pack, PimlicoFeeEstimator } from '@safe-global/relay-kit'
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, parseAbi, zeroAddress, type Address, type Hash, type Hex } from 'viem'
 import { ENTRY_POINT, NFT_ADDRESS, PAYMASTER_ADDRESS, providerConfig } from '../lib/constants'
 import { RpcFailure } from '../lib/diagnostics'
 import { ENTRY_POINT_ABI, verifyReceipt } from '../lib/proof'
 import { diagnoseSponsorship, extractPaymaster, prepareSponsoredTransaction, validateSponsorResponse, type SponsorshipReads } from '../lib/sponsorship'
 import type { OperationRpc } from '../lib/operations'
+import { diagnosticMintTransaction } from '../lib/transactions'
 
 // Synthetic fixtures only; the different address is from Pimlico's documented
 // v0.6 response example, not evidence about our live wallet or a trust allowlist.
@@ -24,6 +26,7 @@ type SponsorRequest = Parameters<PimlicoFeeEstimator['getPaymasterEstimation']>[
 before(() => {
   process.env.NEXT_PUBLIC_PIMLICO_API_KEY = 'unit-only-key'
   process.env.NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID = 'unit-only-policy'
+  delete process.env.NEXT_PUBLIC_VERIFICATION_GAS_BPS
 })
 
 function fixtureOperation(tx: Transaction = transaction) {
@@ -34,12 +37,21 @@ function fixtureOperation(tx: Transaction = transaction) {
   }, { chainId: 11155111n, entryPoint: ENTRY_POINT, moduleAddress: safe })
 }
 
-function fixturePack(modify?: (props: SponsorRequest) => void, after?: (operation: EthSafeOperation) => void) {
+function fixturePack(modify?: (props: SponsorRequest) => void, after?: (operation: EthSafeOperation) => void,
+  traceOptions: { rawGas?: { callGasLimit: bigint; verificationGasLimit: bigint; preVerificationGas: bigint }; adjustmentCalls?: number } = {}) {
   return {
     getChainId: async () => '0xaa36a7',
     createTransaction: async ({ transactions, options }: Parameters<Safe4337Pack['createTransaction']>[0]) => {
       const operation = fixtureOperation(transactions[0])
       const config = providerConfig(true)
+      // Isolated synthetic RPC-estimate boundary. Exercise the real pinned SDK
+      // estimator method, including its rounding, before the sponsorship hook.
+      if (traceOptions.rawGas) operation.addEstimations(traceOptions.rawGas)
+      for (let i = 0; i < (traceOptions.adjustmentCalls ?? 1); i++) {
+        operation.addEstimations(await options!.feeEstimator!.adjustEstimation!({
+          userOperation: operation.toUserOperation(), bundlerUrl: config.bundlerUrl, entryPoint: ENTRY_POINT,
+        }))
+      }
       const props = { userOperation: operation.toUserOperation(), paymasterUrl: config.paymasterUrl, entryPoint: ENTRY_POINT, sponsorshipPolicyId: config.sponsorshipPolicyId }
       modify?.(props)
       const estimation = await options!.feeEstimator!.getPaymasterEstimation!(props)
@@ -54,7 +66,9 @@ function fixturePack(modify?: (props: SponsorRequest) => void, after?: (operatio
 }
 const rpcWith = (value: unknown, observe?: (method: string, params: unknown[]) => void): OperationRpc => async <T>(method: string, params: unknown[]) => {
   observe?.(method, params)
-  return { result: value as T, httpStatus: 200 }
+  return { result: (method === 'pm_sponsorUserOperation' ? value : {
+    callGasLimit: '0x13880', verificationGasLimit: '0x186a0', preVerificationGas: '0xdf55',
+  }) as T, httpStatus: 200 }
 }
 
 test('regression: SDK v0.6 response differing from the estimation seed is validated and bound', async () => {
@@ -62,12 +76,13 @@ test('regression: SDK v0.6 response differing from the estimation seed is valida
   let requests = 0
   const result = await prepareSponsoredTransaction(fixturePack(), safe, transaction, reads, undefined, rpcWith(response(), (method, params) => {
     requests++
-    assert.equal(method, 'pm_sponsorUserOperation')
     assert.equal(params[1], ENTRY_POINT)
-    assert.deepEqual(params[2], { sponsorshipPolicyId: 'unit-only-policy' })
-    assert.equal((params[0] as { callGasLimit: string }).callGasLimit, '0x01', 'Pinned SDK serializes v0.6 quantities')
+    if (method === 'pm_sponsorUserOperation') {
+      assert.deepEqual(params[2], { sponsorshipPolicyId: 'unit-only-policy' })
+      assert.equal((params[0] as { callGasLimit: string }).callGasLimit, '0x01', 'Pinned SDK serializes v0.6 quantities')
+    } else assert.equal(method, 'eth_estimateUserOperationGas')
   }))
-  assert.equal(requests, 1)
+  assert.equal(requests, 2)
   assert.equal(result.paymasterAddress, differentPaymaster)
   assert.equal(result.operation.data.callGasLimit, 80000n)
   assert.equal(result.operation.data.verificationGasLimit, 337155n)
@@ -164,4 +179,298 @@ test('independent chain proof accepts the bound returned paymaster and rejects a
   assert.equal(verifyReceipt(makeReceipt(differentPaymaster), hash, safe, differentPaymaster).paymaster.toLowerCase(), differentPaymaster.toLowerCase())
   assert.throws(() => verifyReceipt(makeReceipt(PAYMASTER_ADDRESS), hash, safe, differentPaymaster), /EVIDENCE_MISMATCH/)
   assert.throws(() => verifyReceipt(makeReceipt(zeroAddress), hash, safe), /EVIDENCE_MISMATCH/)
+})
+
+test('gas diagnostic observes each real SDK adjustment and final sponsored serialization without altering gas', async () => {
+  // Synthetic raw estimates; not a reconstruction of the user's missing log.
+  const rawGas = { callGasLimit: 500_001n, verificationGasLimit: 5_000_000n, preVerificationGas: 60_001n }
+  const sponsored = { ...response(), callGasLimit: '0x1410d2', verificationGasLimit: '0x5b8d80', preVerificationGas: '0x1409e' }
+  let calls = 0
+  const result = await prepareSponsoredTransaction(fixturePack(undefined, undefined, { rawGas }), safe, transaction, reads, undefined, rpcWith(sponsored, (method, params) => {
+    calls++
+    assert.ok(['pm_sponsorUserOperation', 'eth_estimateUserOperationGas'].includes(method), 'No signing or submission RPC')
+    if (method !== 'pm_sponsorUserOperation') return
+    const request = params[0] as Record<string, string>
+    assert.equal(BigInt(request.verificationGasLimit), 6_000_000n)
+    assert.equal(BigInt(request.callGasLimit), 750_001n)
+    assert.equal(BigInt(request.preVerificationGas), 63_001n)
+  }))
+  const trace = result.report.gasTrace!
+  assert.equal(calls, 2)
+  assert.equal(trace.adjustments.length, 1)
+  assert.equal(trace.rawEstimate?.verificationGasLimit.decimal, '5000000')
+  assert.equal(trace.adjustments[0].after.verificationGasLimit.decimal, '6000000')
+  assert.deepEqual(trace.sponsorshipRequest, trace.adjustments[0].after)
+  assert.equal(trace.sponsorshipResponse?.verificationGasLimit.hex, sponsored.verificationGasLimit)
+  assert.equal(trace.finalSerialized?.verificationGasLimit.decimal, '6000000')
+  assert.equal(trace.finalSerialized?.preVerificationGas.hex, '0x01409e', 'Preserve the SDK serializer\'s byte-aligned quantity spelling')
+  assert.equal(result.operation.data.verificationGasLimit, BigInt(sponsored.verificationGasLimit), 'Diagnostics never lower or multiply the final quote')
+  assert.equal(trace.traceComplete, true)
+  assert.equal(trace.budgetReference?.altoV06FloorBeforeCalldataAndExecutorMargin, '13350026')
+  assert.equal(trace.budgetReference?.floorExceedsObservedLimit, false)
+  assert.equal(trace.budgetCheck?.fits, true)
+  assert.equal(trace.budgetReference?.exactRejectedBudgetReconstructed, false)
+  assert.equal(result.operation.signatures.size, 0)
+  assert.deepEqual(result.report.preparation, { safeAddress: safe, chainId: 11155111, entryPoint: ENTRY_POINT, target: NFT_ADDRESS, valueWei: '0', deploymentRequired: true })
+  assert.doesNotMatch(JSON.stringify(result.report), /signature|unit-only-key|unit-only-policy|https:|callData|initCode|abcd/)
+})
+
+test('a repeated SDK adjustment stops preparation without a second multiplier or quote', async () => {
+  const result = await diagnoseSponsorship(fixturePack(undefined, undefined, {
+    rawGas: { callGasLimit: 100n, verificationGasLimit: 100n, preVerificationGas: 100n }, adjustmentCalls: 2,
+  }), safe, transaction, reads, rpcWith(response()))
+  assert.equal(result.valid, false)
+  assert.equal(result.error?.message, 'GAS_ADJUSTMENT_REPEATED')
+  assert.equal(result.gasTrace?.adjustments.length, 1)
+  assert.equal(result.gasTrace?.rawEstimate?.verificationGasLimit.decimal, '100')
+  assert.equal(result.gasTrace?.adjustments[0].after.verificationGasLimit.decimal, '120')
+  assert.equal(result.gasTrace?.finalSerialized, undefined)
+})
+
+test('failed sponsorship retains raw and adjusted estimates with a sanitized error and incomplete trace', async () => {
+  const result = await diagnoseSponsorship(fixturePack(), safe, transaction, reads, async () => {
+    throw new RpcFailure('Denied https://unit.invalid?apikey=unit-only-key params={signature:private}', 403, -32501)
+  })
+  assert.equal(result.valid, false)
+  assert.equal(result.gasTrace?.rawEstimate?.verificationGasLimit.decimal, '1')
+  assert.equal(result.gasTrace?.adjustments[0].after.verificationGasLimit.decimal, '2')
+  assert.equal(result.gasTrace?.sponsorshipRequest?.verificationGasLimit.decimal, '2')
+  assert.equal(result.gasTrace?.sponsorshipResponse, undefined)
+  assert.equal(result.gasTrace?.finalSerialized, undefined)
+  assert.equal(result.gasTrace?.traceComplete, false)
+  assert.equal(result.error?.rpcCode, -32501)
+  assert.doesNotMatch(JSON.stringify(result), /unit.invalid|unit-only-key|private/)
+})
+
+test('diagnostic replays the exact original NFT token without changing its saved attempt', () => {
+  const tokenId = '57236640691412597184328746396250277574326717036406938234663933459999263743829'
+  const attempt = Object.freeze({ kind: 'mint', description: `Tutorial NFT mint: token ${tokenId} to this Safe. Zero ETH transferred.` })
+  const before = JSON.stringify(attempt)
+  const result = diagnosticMintTransaction(safe, attempt)
+  assert.equal(result.reusedPendingMint, true)
+  assert.equal(result.tokenId, tokenId)
+  assert.equal(result.transaction.data, encodeFunctionData({ abi: parseAbi(['function safeMint(address to, uint256 tokenId)']), functionName: 'safeMint', args: [safe, BigInt(tokenId)] }))
+  assert.equal(JSON.stringify(attempt), before)
+  assert.throws(() => diagnosticMintTransaction(safe, { kind: 'mint', description: 'Unrecoverable intent' }), /MINT_DIAGNOSTIC_INTENT_UNAVAILABLE/)
+  assert.throws(() => diagnosticMintTransaction(safe, { kind: 'mint', description: `Tutorial NFT mint: token ${2n ** 256n} to this Safe. Zero ETH transferred.` }), /INVALID_MINT_TOKEN_ID/)
+})
+
+test('pinned Relay Kit gas-estimation pipeline calls the observed adjustment once before sponsorship', async t => {
+  // A local, test-only RPC supplies gas prices. No real provider, credential,
+  // passkey, wallet, or UserOperation submission is involved in this regression.
+  const methods: string[] = []
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = []
+    request.on('data', chunk => chunks.push(chunk))
+    request.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { id: number; method: string } | Array<{ id: number; method: string }>
+      const reply = (item: { id: number; method: string }) => {
+        methods.push(item.method)
+        if (item.method === 'eth_chainId') return { jsonrpc: '2.0', id: item.id, result: '0xaa36a7' }
+        if (item.method === 'pimlico_getUserOperationGasPrice') return { jsonrpc: '2.0', id: item.id, result: { fast: { maxFeePerGas: '0x2', maxPriorityFeePerGas: '0x1' } } }
+        return { jsonrpc: '2.0', id: item.id, error: { code: -32601, message: 'Forbidden test RPC' } }
+      }
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify(Array.isArray(body) ? body.map(reply) : reply(body)))
+    })
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise<void>(resolve => server.close(() => resolve())))
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const raw = { callGasLimit: '0x13880', verificationGasLimit: '0x186a0', preVerificationGas: '0xea60' }
+  let estimateCalls = 0
+  let sponsorCalls = 0
+  let sponsoredEstimateCalls = 0
+  const options = providerConfig(true)
+  type PackOptions = ConstructorParameters<typeof Safe4337Pack>[0]
+  const sdk = new Safe4337Pack({
+    protocolKit: { getThreshold: async () => 1 } as PackOptions['protocolKit'],
+    bundlerClient: { send: async (method: string) => {
+      assert.equal(method, 'eth_estimateUserOperationGas')
+      estimateCalls++
+      return raw
+    } } as unknown as PackOptions['bundlerClient'],
+    bundlerUrl: `http://127.0.0.1:${address.port}`, chainId: 11155111n,
+    paymasterOptions: { isSponsored: true, paymasterUrl: options.paymasterUrl, sponsorshipPolicyId: options.sponsorshipPolicyId },
+    entryPointAddress: ENTRY_POINT, safe4337ModuleAddress: safe, safeWebAuthnSharedSignerAddress: safe,
+  })
+  const pack = { getChainId: async () => '0xaa36a7',
+    createTransaction: async (props: Parameters<Safe4337Pack['createTransaction']>[0]) => sdk.getEstimateFee({
+      safeOperation: fixtureOperation(props.transactions[0]), feeEstimator: props.options?.feeEstimator,
+    }),
+  }
+  const result = await diagnoseSponsorship(pack, safe, transaction, reads, rpcWith(response(), (method, params) => {
+    const request = params[0] as Record<string, string>
+    if (method === 'pm_sponsorUserOperation') {
+      sponsorCalls++
+      assert.equal(BigInt(request.verificationGasLimit), 120_000n)
+    } else {
+      assert.equal(method, 'eth_estimateUserOperationGas')
+      sponsoredEstimateCalls++
+      assert.equal(BigInt(request.verificationGasLimit), 337_155n)
+      assert.equal(request.paymasterAndData, response().paymasterAndData)
+      assert.ok(request.signature.length > 26, 'The actual SDK supplies a well-formed dummy signature')
+    }
+  }))
+  assert.equal(result.valid, true)
+  assert.equal(estimateCalls, 1)
+  assert.equal(sponsorCalls, 1)
+  assert.equal(sponsoredEstimateCalls, 1)
+  assert.equal(result.gasTrace?.adjustments.length, 1)
+  assert.equal(result.gasTrace?.rawEstimate?.verificationGasLimit.decimal, '100000')
+  assert.equal(result.gasTrace?.sponsorshipRequest?.verificationGasLimit.decimal, '120000')
+  assert.equal(result.gasTrace?.finalSerialized?.verificationGasLimit.decimal, '337155', 'The SDK applies the sponsor response without another multiplier')
+  assert.equal(result.gasTrace?.traceComplete, true)
+  assert.ok(methods.every(method => ['eth_chainId', 'pimlico_getUserOperationGasPrice'].includes(method)))
+})
+
+test('measured gas regression: bounded allowance replaces stock 4x without changing the fresh quote or serialization', async () => {
+  // Public measurements from the user's preparation-only probe. Replayed in an
+  // isolated fixture; this test does not contact Pimlico or submit an operation.
+  const rawGas = { callGasLimit: 876_684n, verificationGasLimit: 5_065_294n, preVerificationGas: 78_170n }
+  // The new quote is a synthetic projection; its live response must be checked
+  // separately. The raw estimate and second-estimate quantities were measured.
+  const sponsored = { ...response(), callGasLimit: '0x1410d2', verificationGasLimit: `0x${6_078_353n.toString(16)}`, preVerificationGas: '0x1409e' }
+  const stock = await new PimlicoFeeEstimator().adjustEstimation({ userOperation: { ...fixtureOperation().toUserOperation(), ...rawGas },
+    bundlerUrl: 'https://unit.invalid', entryPoint: ENTRY_POINT })
+  assert.equal(stock.verificationGasLimit, 20_261_176n, 'Reproduce the pinned SDK defect without editing SDK files')
+  const actual = { callGasLimit: '0x5ad08', verificationGasLimit: '0x4cee1f', preVerificationGas: '0x13c25' }
+  let prepared: EthSafeOperation | undefined
+  const methods: string[] = []
+  const result = await diagnoseSponsorship(fixturePack(undefined, operation => { prepared = operation }, { rawGas }),
+    safe, transaction, reads, async <T>(method: string, params: unknown[]) => {
+      methods.push(method)
+      const request = params[0] as Record<string, string>
+      assert.equal(params[1], ENTRY_POINT)
+      assert.equal(BigInt(request.verificationGasLimit), 6_078_353n)
+      if (method === 'pm_sponsorUserOperation') return { result: sponsored as T, httpStatus: 200 }
+      assert.equal(method, 'eth_estimateUserOperationGas', 'Only preparation and estimation are allowed')
+      assert.equal(request.paymasterAndData, sponsored.paymasterAndData)
+      assert.equal(request.sender, safe)
+      assert.equal(request.callData, prepared!.data.callData)
+      // Replay the user's second read-only measurement with actual paymaster
+      // data; no live RPC or signature validation occurs inside this test.
+      return { result: actual as T, httpStatus: 200 }
+    })
+  const trace = result.gasTrace!
+  assert.deepEqual(methods, ['pm_sponsorUserOperation', 'eth_estimateUserOperationGas'])
+  assert.equal(trace.rawEstimate?.verificationGasLimit.decimal, '5065294')
+  assert.equal(trace.adjustments.length, 1)
+  assert.equal(trace.adjustments[0].after.verificationGasLimit.decimal, '6078353')
+  assert.deepEqual(trace.sponsorshipRequest, trace.sponsorshipResponse)
+  assert.equal(trace.finalSerialized?.verificationGasLimit.decimal, '6078353')
+  assert.equal(trace.finalSerialized?.callGasLimit.decimal, '1315026')
+  assert.equal(trace.finalSerialized?.preVerificationGas.decimal, '82078')
+  assert.equal(trace.budgetReference?.altoV06FloorBeforeCalldataAndExecutorMargin, '13506732')
+  assert.equal(trace.verificationAllowanceBps, 12000)
+  assert.equal(trace.verificationMarginPreserved, true)
+  assert.equal(trace.budgetCheck?.fits, true)
+  assert.ok(BigInt(trace.budgetCheck!.estimatedHeadroom) > 1_000_000n)
+  assert.equal(trace.budgetReference?.exactRejectedBudgetReconstructed, false)
+  assert.equal(trace.actualPaymasterEstimate?.verificationGasLimit.decimal, '5041695')
+  assert.equal(trace.actualPaymasterEstimate?.callGasLimit.decimal, '371976')
+  assert.equal(trace.actualPaymasterEstimate?.preVerificationGas.decimal, '80933')
+  assert.deepEqual(trace.estimateWithinQuotedGas, { callGasLimit: true, verificationGasLimit: true, preVerificationGas: true })
+  assert.equal(prepared!.data.verificationGasLimit, 6_078_353n, 'Re-estimation never changes the signed sponsorship gas')
+  assert.equal(prepared!.signatures.size, 0)
+})
+
+test('actual paymaster re-estimation rejects inadequate quotes without changing the prepared operation', async () => {
+  let prepared: EthSafeOperation | undefined
+  const result = await diagnoseSponsorship(fixturePack(undefined, operation => { prepared = operation }),
+    safe, transaction, reads, async <T>(method: string) => ({ httpStatus: 200,
+      result: (method === 'pm_sponsorUserOperation' ? response() : { ...response(), verificationGasLimit: '0x52504' }) as T,
+    }))
+  assert.equal(result.valid, false)
+  assert.equal(result.error?.message, 'SPONSORSHIP_QUOTE_GAS_INSUFFICIENT')
+  assert.equal(result.error?.acceptance, 'no')
+  assert.equal(result.gasTrace?.estimateWithinQuotedGas?.verificationGasLimit, false)
+  assert.equal(result.gasTrace?.actualPaymasterEstimate?.verificationGasLimit.decimal, '337156')
+  assert.equal(prepared!.data.verificationGasLimit, 337_155n)
+  assert.equal(prepared!.signatures.size, 0)
+})
+
+test('failed or malformed actual paymaster estimate retains the trace and sanitized read-only error', async () => {
+  for (const malformed of [false, true]) {
+    const result = await diagnoseSponsorship(fixturePack(), safe, transaction, reads, async <T>(method: string) => {
+      if (method === 'pm_sponsorUserOperation') return { result: response() as T, httpStatus: 200 }
+      assert.equal(method, 'eth_estimateUserOperationGas')
+      if (malformed) return { result: { verificationGasLimit: '0x1' } as T, httpStatus: 200 }
+      throw new RpcFailure('Estimate denied https://unit.invalid?apikey=unit-only-key params={signature:private}', 400, -32500)
+    })
+    assert.equal(result.valid, false)
+    assert.equal(result.gasTrace?.traceComplete, true)
+    assert.equal(result.gasTrace?.finalSerialized?.verificationGasLimit.decimal, '337155')
+    assert.equal(result.gasTrace?.actualPaymasterEstimate, undefined)
+    assert.equal(result.error?.acceptance, 'no')
+    if (malformed) assert.equal(result.error?.message, 'SPONSORSHIP_INVALID_GAS')
+    else { assert.equal(result.error?.httpStatus, 400); assert.equal(result.error?.rpcCode, -32500) }
+    assert.doesNotMatch(JSON.stringify(result), /unit.invalid|unit-only-key|private|signature|abcd|"paymasterAndData":"0x/)
+  }
+})
+
+test('fresh estimate must retain the selected margin even when it barely fits the quote', async () => {
+  let prepared: EthSafeOperation | undefined
+  const methods: string[] = []
+  const result = await diagnoseSponsorship(fixturePack(undefined, operation => { prepared = operation }), safe, transaction, reads,
+    async <T>(method: string) => {
+      methods.push(method)
+      return { httpStatus: 200, result: (method === 'pm_sponsorUserOperation' ? response() : {
+        ...response(), verificationGasLimit: '0x493e0',
+      }) as T }
+    })
+  assert.equal(result.valid, false)
+  assert.equal(result.error?.message, 'GAS_VERIFICATION_MARGIN_INSUFFICIENT')
+  assert.equal(result.error?.acceptance, 'no')
+  assert.equal(result.gasTrace?.estimateWithinQuotedGas?.verificationGasLimit, true)
+  assert.equal(result.gasTrace?.verificationMarginPreserved, false)
+  assert.equal(prepared!.data.verificationGasLimit, 337155n, 'No post-sponsorship gas adjustment')
+  assert.equal(prepared!.signatures.size, 0)
+  assert.deepEqual(methods, ['pm_sponsorUserOperation', 'eth_estimateUserOperationGas'], 'No smaller allowance, retry or broadcast')
+})
+
+test('oversized sponsored budget stops before re-estimation without clamping or another quote', async () => {
+  let prepared: EthSafeOperation | undefined
+  const methods: string[] = []
+  const sponsored = { ...response(), callGasLimit: '0x1410d2', verificationGasLimit: '0x1352938', preVerificationGas: '0x1409e' }
+  const result = await diagnoseSponsorship(fixturePack(undefined, operation => { prepared = operation }), safe, transaction, reads,
+    rpcWith(sponsored, method => { methods.push(method) }))
+  assert.equal(result.valid, false)
+  assert.equal(result.error?.message, 'GAS_BUDGET_EXCEEDED')
+  assert.equal(result.error?.acceptance, 'no')
+  assert.equal(result.gasTrace?.budgetCheck?.fits, false)
+  assert.ok(BigInt(result.gasTrace!.budgetCheck!.estimatedHeadroom) < 0n)
+  assert.equal(result.gasTrace?.actualPaymasterEstimate, undefined)
+  assert.equal(prepared!.data.verificationGasLimit, 20261176n)
+  assert.equal(prepared!.signatures.size, 0)
+  assert.deepEqual(methods, ['pm_sponsorUserOperation'])
+})
+
+test('prepared intent binding is rechecked after the asynchronous actual-paymaster estimate', async () => {
+  let prepared: EthSafeOperation | undefined
+  const result = await diagnoseSponsorship(fixturePack(undefined, operation => { prepared = operation }), safe, transaction, reads,
+    async <T>(method: string) => {
+      if (method === 'eth_estimateUserOperationGas') prepared!.data.callGasLimit++
+      return { httpStatus: 200, result: (method === 'pm_sponsorUserOperation' ? response() : {
+        callGasLimit: '0x13880', verificationGasLimit: '0x186a0', preVerificationGas: '0xdf55',
+      }) as T }
+    })
+  assert.equal(result.valid, false)
+  assert.equal(result.error?.message, 'SPONSORSHIP_PREPARED_MISMATCH')
+  assert.equal(prepared!.signatures.size, 0)
+})
+
+test('invalid allowance blocks preparation before provider access and is never silently replaced', async () => {
+  process.env.NEXT_PUBLIC_VERIFICATION_GAS_BPS = '11000'
+  let calls = 0
+  try {
+    const result = await diagnoseSponsorship(fixturePack(), safe, transaction, reads, async () => {
+      calls++
+      throw new Error('Must not request sponsorship')
+    })
+    assert.equal(result.valid, false)
+    assert.equal(result.error?.message, 'INVALID_VERIFICATION_GAS_BPS')
+    assert.equal(calls, 0)
+  } finally { delete process.env.NEXT_PUBLIC_VERIFICATION_GAS_BPS }
 })

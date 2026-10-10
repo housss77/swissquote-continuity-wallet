@@ -12,9 +12,10 @@ export function transferTransaction(safeAddress: Address, recipient: string, amo
   return { to: getAddress(recipient), value: value.toString(), data: '0x' }
 }
 
-export function mintTransaction(safeAddress: Address) {
+export function mintTransaction(safeAddress: Address, existingTokenId?: bigint) {
   // Random token ID avoids tutorial NFT collisions; this is not key material.
-  const tokenId = BigInt(`0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('')}`)
+  const tokenId = existingTokenId ?? BigInt(`0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('')}`)
+  if (tokenId < 0n || tokenId >= 2n ** 256n) throw new Error('INVALID_MINT_TOKEN_ID')
   return {
     transaction: {
       to: NFT_ADDRESS,
@@ -27,4 +28,13 @@ export function mintTransaction(safeAddress: Address) {
     },
     tokenId: tokenId.toString(),
   }
+}
+
+// Read the public token ID already recorded by this app so a diagnostic replays
+// the rejected NFT intent. This never modifies or archives the attempt.
+export function diagnosticMintTransaction(safeAddress: Address, attempt: { kind: string; description: string } | null) {
+  if (!attempt || attempt.kind !== 'mint') return { ...mintTransaction(safeAddress), reusedPendingMint: false }
+  const match = /^Tutorial NFT mint: token (\d+) to this Safe\. Zero ETH transferred\.$/.exec(attempt.description)
+  if (!match) throw new Error('MINT_DIAGNOSTIC_INTENT_UNAVAILABLE')
+  return { ...mintTransaction(safeAddress, BigInt(match[1])), reusedPendingMint: true }
 }

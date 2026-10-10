@@ -76,6 +76,7 @@ rebuild for production because values are embedded at build time.
 | `NEXT_PUBLIC_PIMLICO_API_KEY` | Yes for initialization/send | Dedicated key with Sepolia bundler access and verifying-paymaster sponsorship enabled. |
 | `NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID` | Yes before preparation/send | Active policy allowing deployment, passkey signature gas, and the desired call on Sepolia. Missing configuration blocks preparation before signing. |
 | `NEXT_PUBLIC_SEPOLIA_RPC_URL` | No | Browser-accessible Sepolia RPC override; defaults to publicnode. Chain ID is checked. |
+| `NEXT_PUBLIC_VERIFICATION_GAS_BPS` | No | Verification allowance, integer from 11500 to 12000; default 12000 (1.20x). Restart/rebuild after changes. |
 
 Create/approve your provider account/key at [Pimlico Dashboard](https://dashboard.pimlico.io/).
 Provider access or paid sponsorship balance is not supplied by this repository. A key
@@ -118,14 +119,113 @@ Authentication/reconnect is not required for this diagnostic. It initializes the
 predicted Safe from public metadata and prepares the tutorial NFT call with the SDK's
 dummy signature. It cannot request a real passkey signature, broadcast, or write to
 wallet/attempt storage. The operation and raw sponsorship authorization are discarded;
-only the public returned address, response field types, validation results, and
-sanitized errors appear. `valid: true` means a validated preparation, **not** bundler
+only public gas quantities, preparation addresses/token ID, returned paymaster address,
+response field types, validation results, and sanitized errors appear.
+`valid: true` means a validated preparation, **not** bundler
 acceptance or onchain success. The quote is not reused for a later send.
 Pimlico can temporarily reserve sponsorship budget for a quote; its documented
 sponsorship window is ten minutes. Run this once, not in a polling loop.
 If contract/EntryPoint/provider/intent validation fails, stop and share this public
 report; do not force a send or replace the wallet. A documentation example address
 alone is not a canonical provider allowlist, so no replacement address is hardcoded.
+
+### Task 01E: bounded verification gas and preparation gate
+
+The live Task 01D trace established that Relay Kit 3.1.0's stock adjustment ran
+exactly once: verification gas increased from **5,065,294** to **20,261,176**.
+Call gas increased from **876,684** to **1,315,026** and pre-verification gas from
+**78,170** to **82,078**. Sponsorship and serialization preserved those values.
+The old signed request was lost; its exact rejected 43,985,430 budget cannot be
+reconstructed. No successful onchain transaction has been verified.
+
+The supported `feeEstimator.adjustEstimation` hook now replaces only the stock
+4x verification adjustment with `ceil(raw * bps / 10000)`. The default is
+**12000 basis points (1.20x)**. Optional `NEXT_PUBLIC_VERIFICATION_GAS_BPS` accepts
+only integers **11500 to 12000**; invalid configuration blocks preparation. Keep the
+default for the controlled retry. The SDK's +50% call-gas and +5% pre-verification
+margins remain unchanged. No SDK files or dependencies are modified.
+
+The upper candidate allowance is selected because actual-paymaster read-only
+estimation measured verification gas around 5.03 to 5.04 million, close to the initial
+5.07 million estimate. The pinned SDK's padded dummy exercises the existing Safe
+passkey verifier path during estimation, but does not prove that a real assertion
+will validate or establish its exact gas cost. A 20% margin is a bounded candidate,
+not a guarantee. It leaves more verification room than 15% while appearing to fit
+the observed provider limit. Live preparation must verify this before signing.
+
+Every diagnostic or manual send obtains fresh SDK estimates and a **new** sponsorship
+quote, validates the existing chain/EntryPoint/Safe/intent/paymaster contracts and
+prepared-field binding, and re-estimates once with the actual returned authorization
+and SDK dummy signature. All three estimates must fit the quote, and the quoted
+verification limit must retain the configured margin against the second estimate.
+The operation's gas fields are never changed after sponsorship or signing. There
+is no second candidate, automatic retry, or automatic lowering of the allowance.
+
+`gasTrace` reports normalized raw gas quantities, the single adjustment,
+sponsorship request/response, final serialized gas, `actualPaymasterEstimate`,
+`estimateWithinQuotedGas`, and `verificationMarginPreserved`. Public
+`preparation` metadata identifies the Safe, target, value and token ID.
+A saved mint attempt supplies its exact token ID; a malformed saved description
+blocks diagnosis. No wallet metadata, pending operation, or history is written
+by the diagnostic. Request payloads, passkey data and authorization bytes are
+never displayed.
+
+Before signing, `budgetCheck` models a single v0.6 operation using
+[current Alto's AA95 floor](https://github.com/pimlicolabs/alto/blob/main/src/executor/utils.ts):
+`callGasLimit + 2 * verificationGasLimit + 35000`, plus the full encoded
+`handleOps` calldata charged conservatively at 16 gas per byte, then a rounded-up
+**10% executor reserve**. This must fit the previously observed **16,000,000**
+limit. [Current Alto configuration](https://github.com/pimlicolabs/alto/blob/main/src/cli/config/options.ts)
+defaults to 5% executor padding; the hosted provider's release/configuration is
+unverified, so this model is not a bundler acknowledgement. The final actual
+signature's serialized size is checked again before the single broadcast.
+No gas field is capped to the limit, and no signature verification is bypassed.
+
+`valid: true` requires all preparation checks, sufficient quoted gas and the
+budget test. It still does not prove a real signature or inclusion.
+[Pimlico explicitly permits estimation with an invalid, well-formed dummy signature](https://docs.pimlico.io/references/bundler/endpoints/eth_estimateUserOperationGas).
+An insufficient quote/margin, oversized budget, invalid response, repeated adjustment
+or RPC failure stops before signing with a sanitized error. If the fresh preparation
+cannot establish a plausible budget, stop this Safe integration within the current
+constraints and recommend an EOA + SLIP-39 fallback for a separate task; do not
+implement it or introduce another workaround here.
+
+After the updated app starts, refresh **http://localhost:3000** with Ctrl+R in the
+existing Chrome profile and click **Diagnose NFT sponsorship (no signing or sending)**
+exactly once. Copy the public report for review. Leave Authenticate, Sign and send,
+Check pending and Preserve attempt untouched for this diagnostic. The quote is
+discarded; any later authorized send runs the entire fresh gate again.
+
+The user's fresh Chrome preparation-only report after this patch passed every
+chain, EntryPoint, sender, intent, paymaster contract and binding check, with
+HTTP 200, `valid: true`, one adjustment, and `verificationMarginPreserved: true`:
+
+| Fresh stage | verificationGasLimit | callGasLimit | preVerificationGas |
+| --- | ---: | ---: | ---: |
+| Raw provider estimate | 5,065,294 | 876,684 | 78,170 |
+| Bounded SDK adjustment | 6,078,353 | 1,315,026 | 82,078 |
+| Sponsorship request | 6,078,353 | 1,315,026 | 82,078 |
+| Sponsorship response | 6,078,353 | 1,315,026 | 82,078 |
+| Final serialization | 6,078,353 | 1,315,026 | 82,078 |
+| Actual-paymaster estimate with SDK dummy | 5,039,340 | 371,976 | 80,933 |
+
+The returned public paymaster was `0x6666666666667849c56f2850848cE1C4da65c68b`.
+The model counted 2,660 encoded bytes (42,560 gas upper bound), a 13,506,732 AA95
+floor and 1,354,930 executor reserve: **14,904,222** modeled gas with **1,095,778**
+remaining below the observed limit. All three fresh estimates fit the unchanged
+quote. Provider executor padding and a real signature remain unverified. This is
+browser-reported live preparation evidence, not bundler acceptance or a transaction.
+
+For one controlled retry after reviewing the old explicit rejection, keep the same
+Chrome profile and Safe. Check the old pending operation; if it shows acceptance or
+inclusion, stop and resolve it instead. If the original explicit rejection still
+has no acceptance evidence, preserve the old attempt using the existing manual
+archive control, authenticate the original passkey, and confirm the same Safe
+address and Sepolia. Select the tutorial NFT mint and click Sign and send **once**.
+The complete fresh gate runs again before its transaction signing prompt; if it
+fails, stop. Approve the existing passkey once if prompted. Wait for independent
+confirmation, and report the public receipt/hash or sanitized failure panel. Never
+force another send, change the allowance, or replace the wallet to bypass a failure.
 
 `npm run check:provider` performs only reads. It checks both chain IDs, EntryPoint 0.6
 support, deployed contracts, and retrieves the configured policy with Pimlico's account

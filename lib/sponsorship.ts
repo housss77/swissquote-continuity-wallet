@@ -4,8 +4,10 @@ import { decodeFunctionData, getAddress, parseAbi, zeroAddress, type Address, ty
 import { assertSepolia, ENTRY_POINT, providerConfig } from './constants'
 import { diagnose, type Diagnostic } from './diagnostics'
 import { rpcRequest, type OperationRpc } from './operations'
+import { adjustedVerificationGas, operationBudget, verificationAllowanceBps } from './gas'
 
 type SponsorRequest = Parameters<PimlicoFeeEstimator['getPaymasterEstimation']>[0]
+type AdjustmentRequest = Parameters<PimlicoFeeEstimator['adjustEstimation']>[0]
 type UserOperation = SponsorRequest['userOperation']
 type Transaction = Parameters<Safe4337Pack['createTransaction']>[0]['transactions'][number]
 // This capability excludes both signing and broadcasting, including in the probe.
@@ -16,6 +18,28 @@ const responseFields = ['paymasterAndData', ...gasFields, ...feeFields, 'verific
 const executeAbi = parseAbi(['function executeUserOp(address to, uint256 value, bytes data, uint8 operation)'])
 const isBytes = (value: unknown): value is Hex => typeof value === 'string' && /^0x(?:[a-fA-F0-9]{2})*$/.test(value)
 
+type GasSnapshot = Record<typeof gasFields[number], { decimal: string; hex: string }>
+export type GasTrace = {
+  adjustmentPolicy: 'bounded-verification'
+  verificationAllowanceBps: number
+  rawEstimate?: GasSnapshot
+  adjustments: Array<{ before: GasSnapshot; after: GasSnapshot }>
+  sponsorshipRequest?: GasSnapshot
+  sponsorshipResponse?: GasSnapshot
+  finalSerialized?: GasSnapshot
+  actualPaymasterEstimate?: GasSnapshot
+  estimateWithinQuotedGas?: Record<typeof gasFields[number], boolean>
+  verificationMarginPreserved?: boolean
+  budgetCheck?: ReturnType<typeof operationBudget>
+  traceComplete: boolean
+  budgetReference?: {
+    observedBundlerLimit: string
+    altoV06FloorBeforeCalldataAndExecutorMargin: string
+    floorExceedsObservedLimit: boolean
+    exactRejectedBudgetReconstructed: false
+  }
+}
+
 export type SponsorshipReport = {
   paymasterAddress?: Address
   httpStatus?: number
@@ -23,6 +47,8 @@ export type SponsorshipReport = {
   checks: Partial<Record<'chain' | 'entryPoint' | 'sender' | 'intent' | 'response' | 'paymasterCode' | 'paymasterEntryPoint' | 'preparedBinding', 'passed'>>
   valid: boolean
   error?: Diagnostic
+  preparation?: { safeAddress: Address; chainId: number; entryPoint: Address; target: Address; valueWei: string; deploymentRequired?: boolean; tokenId?: string; reusedPendingMint?: boolean }
+  gasTrace?: GasTrace
 }
 export type SponsorshipReads = {
   getChainId: () => Promise<number>
@@ -35,6 +61,18 @@ function positiveQuantity(value: unknown): bigint {
   const quantity = BigInt(value)
   if (quantity <= 0n || quantity >= 2n ** 256n) throw new Error('SPONSORSHIP_INVALID_GAS')
   return quantity
+}
+
+// Only these three public gas quantities may escape the SDK hook. BigInt values
+// are the SDK's parsed RPC estimates; their hex form is normalized. At the final
+// stage we preserve the exact hex produced by Relay Kit's submission serializer.
+function gasSnapshot(value: object): GasSnapshot {
+  const fields = value as Record<string, unknown>
+  return Object.fromEntries(gasFields.map(key => {
+    const input = fields[key]
+    const quantity = typeof input === 'bigint' ? positiveQuantity(`0x${input.toString(16)}`) : positiveQuantity(input)
+    return [key, { decimal: quantity.toString(), hex: typeof input === 'string' ? input : `0x${quantity.toString(16)}` }]
+  })) as GasSnapshot
 }
 
 export function extractPaymaster(value: unknown): Address {
@@ -86,13 +124,27 @@ export async function validatePaymasterContract(address: Address, reads: Sponsor
   report.checks.paymasterEntryPoint = 'passed'
 }
 
-// Keep Relay Kit 3.1.0's gas-price/adjustment and dummy-signature flow. Only its
-// sponsorship hook uses the same SDK serializer with observable, single RPC.
+// The supported SDK hook changes verification padding only, before sponsorship.
+// The SDK still supplies its call/pre-verification margins and dummy signature.
 class ValidatingPimlicoEstimator extends PimlicoFeeEstimator {
   request?: UserOperation
   estimation?: ReturnType<typeof validateSponsorResponse>['estimation']
   constructor(private safe: Address, private transaction: Transaction, private reads: SponsorshipReads,
-    private report: SponsorshipReport, private rpc: OperationRpc) { super() }
+    private report: SponsorshipReport, private rpc: OperationRpc, private allowanceBps: number) {
+    super()
+    this.report.gasTrace = { adjustmentPolicy: 'bounded-verification', verificationAllowanceBps: allowanceBps, adjustments: [], traceComplete: false }
+  }
+
+  override async adjustEstimation(props: AdjustmentRequest) {
+    const trace = this.report.gasTrace!
+    if (trace.adjustments.length !== 0) throw new Error('GAS_ADJUSTMENT_REPEATED')
+    const before = gasSnapshot(props.userOperation)
+    trace.rawEstimate ??= before
+    const adjusted = await super.adjustEstimation(props)
+    adjusted.verificationGasLimit = adjustedVerificationGas(props.userOperation.verificationGasLimit, this.allowanceBps)
+    trace.adjustments.push({ before, after: gasSnapshot(adjusted) })
+    return adjusted
+  }
 
   override async getPaymasterEstimation(props: SponsorRequest) {
     const config = providerConfig(true)
@@ -102,6 +154,8 @@ class ValidatingPimlicoEstimator extends PimlicoFeeEstimator {
     validateIntent(props.userOperation, this.safe, this.transaction)
     this.report.checks.sender = 'passed'
     this.report.checks.intent = 'passed'
+    this.report.gasTrace!.sponsorshipRequest = gasSnapshot(props.userOperation)
+    this.report.preparation!.deploymentRequired = props.userOperation.initCode !== '0x'
     this.request = { ...props.userOperation }
     const { result, httpStatus } = await this.rpc<unknown>('pm_sponsorUserOperation', [
       userOperationToHexValues(props.userOperation), ENTRY_POINT, { sponsorshipPolicyId: config.sponsorshipPolicyId },
@@ -113,6 +167,7 @@ class ValidatingPimlicoEstimator extends PimlicoFeeEstimator {
       try { this.report.paymasterAddress = extractPaymaster(fields.paymasterAndData) } catch { /* Validation below retains the error. */ }
     }
     const validated = validateSponsorResponse(result)
+    this.report.gasTrace!.sponsorshipResponse = gasSnapshot(result as object)
     this.report.paymasterAddress = validated.paymasterAddress
     this.report.checks.response = 'passed'
     await validatePaymasterContract(validated.paymasterAddress, this.reads, this.report)
@@ -137,17 +192,51 @@ export function validatePreparedBinding(operation: EthSafeOperation, request: Us
 
 export async function prepareSponsoredTransaction(pack: PreparationPack, safe: Address, transaction: Transaction,
   reads: SponsorshipReads, report: SponsorshipReport = { checks: {}, valid: false }, rpc?: OperationRpc) {
+  const allowanceBps = verificationAllowanceBps()
   assertSepolia(BigInt(await pack.getChainId()))
   assertSepolia(await reads.getChainId())
   report.checks.chain = 'passed'
+  report.preparation = { safeAddress: safe, chainId: 11155111, entryPoint: ENTRY_POINT, target: transaction.to as Address, valueWei: transaction.value }
   const { paymasterUrl } = providerConfig(true)
-  const estimator = new ValidatingPimlicoEstimator(safe, transaction, reads, report,
-    rpc ?? ((method, params) => rpcRequest(paymasterUrl, method, params)))
+  const operationRpc: OperationRpc = rpc ?? ((method, params) => rpcRequest(paymasterUrl, method, params))
+  const estimator = new ValidatingPimlicoEstimator(safe, transaction, reads, report, operationRpc, allowanceBps)
   const operation = await pack.createTransaction({ transactions: [{ ...transaction }], options: { feeEstimator: estimator } })
   if (!estimator.request || !estimator.estimation || !report.paymasterAddress) throw new Error('SPONSORSHIP_RESPONSE_MISSING')
   if (operation.signatures.size !== 0) throw new Error('SPONSORSHIP_UNEXPECTED_SIGNATURE')
   validatePreparedBinding(operation, estimator.request, estimator.estimation, safe, transaction)
   report.checks.preparedBinding = 'passed'
+  const trace = report.gasTrace!
+  trace.finalSerialized = gasSnapshot(userOperationToHexValues(operation.toUserOperation()))
+  trace.traceComplete = !!trace.rawEstimate && trace.adjustments.length > 0 && !!trace.sponsorshipRequest && !!trace.sponsorshipResponse
+  // Current Alto's v0.6 AA95 floor: call + 2*verification + 35,000,
+  // before variable calldata cost and provider-specific executor padding.
+  // This is diagnostic arithmetic, NOT a gas cap, a submission preflight, or
+  // reconstruction of the original signed operation's 43,985,430 budget.
+  const floor = BigInt(trace.finalSerialized.callGasLimit.decimal) + 2n * BigInt(trace.finalSerialized.verificationGasLimit.decimal) + 35_000n
+  const observedLimit = 16_000_000n // Reported by the user's prior -32602 response.
+  trace.budgetReference = { observedBundlerLimit: observedLimit.toString(),
+    altoV06FloorBeforeCalldataAndExecutorMargin: floor.toString(), floorExceedsObservedLimit: floor > observedLimit,
+    exactRejectedBudgetReconstructed: false }
+  // Use the actual authorization with Relay Kit's existing padded dummy. The
+  // quote's fields stay untouched; no second sponsorship or adjustment is tried.
+  const estimatedOperation = { ...operation.toUserOperation(), signature: estimator.request.signature }
+  trace.budgetCheck = operationBudget(estimatedOperation)
+  if (!trace.budgetCheck.fits) throw new Error('GAS_BUDGET_EXCEEDED')
+  const { result } = await operationRpc<unknown>('eth_estimateUserOperationGas', [
+    userOperationToHexValues(estimatedOperation), ENTRY_POINT,
+  ])
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('SPONSORSHIP_INVALID_GAS')
+  trace.actualPaymasterEstimate = gasSnapshot(result)
+  trace.estimateWithinQuotedGas = Object.fromEntries(gasFields.map(key => [key,
+    BigInt(trace.actualPaymasterEstimate![key].decimal) <= BigInt(trace.finalSerialized![key].decimal),
+  ])) as Record<typeof gasFields[number], boolean>
+  if (Object.values(trace.estimateWithinQuotedGas).some(within => !within)) throw new Error('SPONSORSHIP_QUOTE_GAS_INSUFFICIENT')
+  trace.verificationMarginPreserved = adjustedVerificationGas(BigInt(trace.actualPaymasterEstimate.verificationGasLimit.decimal), allowanceBps)
+    <= BigInt(trace.finalSerialized.verificationGasLimit.decimal)
+  if (!trace.verificationMarginPreserved) throw new Error('GAS_VERIFICATION_MARGIN_INSUFFICIENT')
+  // Validate again after the read so an SDK mutation cannot pass the signing gate.
+  if (operation.signatures.size !== 0) throw new Error('SPONSORSHIP_UNEXPECTED_SIGNATURE')
+  validatePreparedBinding(operation, estimator.request, estimator.estimation, safe, transaction)
   report.valid = true
   return { operation, paymasterAddress: report.paymasterAddress, report }
 }
@@ -158,6 +247,6 @@ export async function diagnoseSponsorship(pack: PreparationPack, safe: Address, 
   reads: SponsorshipReads, rpc?: OperationRpc): Promise<SponsorshipReport> {
   const report: SponsorshipReport = { checks: {}, valid: false }
   try { await prepareSponsoredTransaction(pack, safe, transaction, reads, report, rpc) }
-  catch (error) { report.error = diagnose(error, 'prepare', 'no') }
+  catch (error) { report.valid = false; report.error = diagnose(error, 'prepare', 'no') }
   return report
 }

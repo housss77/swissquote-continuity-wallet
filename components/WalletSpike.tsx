@@ -9,8 +9,9 @@ import { diagnose, type Diagnostic } from '../lib/diagnostics'
 import { friendlyError, type Stage } from '../lib/errors'
 import { assertPasskeySupport, authenticatePasskey, createPasskey, loadPasskey, savePasskey } from '../lib/passkeys'
 import type { ConfirmedProof } from '../lib/proof'
-import { mintTransaction, transferTransaction } from '../lib/transactions'
+import { diagnosticMintTransaction, mintTransaction, transferTransaction } from '../lib/transactions'
 import { diagnoseSponsorship, prepareSponsoredTransaction, type SponsorshipReport } from '../lib/sponsorship'
+import { assertOperationBudget } from '../lib/gas'
 import { archivePending, checkNetworks, confirmOperation, initializeWallet, loadPending, operationHash, publicClient, savePending, sponsorshipReads, submitOperation, walletSnapshot, type PendingOperation, type WalletSnapshot } from '../lib/wallet'
 
 const lifecycleText = {
@@ -177,11 +178,18 @@ export default function WalletSpike() {
         description = `Tutorial NFT mint: token ${mint.tokenId} to this Safe. Zero ETH transferred.`
       }
       setStatus('Estimating the UserOperation and requesting sponsorship…')
-      const { operation, paymasterAddress } = await prepareSponsoredTransaction(pack, wallet.address, transaction, sponsorshipReads)
+      const report: SponsorshipReport = { checks: {}, valid: false }
+      let prepared
+      try { prepared = await prepareSponsoredTransaction(pack, wallet.address, transaction, sponsorshipReads, report) }
+      finally { setSponsorshipReport(report) }
+      const { operation, paymasterAddress } = prepared
       const preparedHash = operationHash(operation.toUserOperation())
       stage = 'sign'
       setStatus('Prepared locally. Approve the transaction-bound passkey signature in your browser.')
       const signed = await pack.signSafeOperation(operation)
+      // A larger real assertion must still fit before the single broadcast.
+      // This checks size/budget only; SDK/bundler retain signature verification.
+      assertOperationBudget(signed.toUserOperation())
       // Keep the local hash for ambiguous network failures, never as acceptance proof.
       const hash = operationHash(signed.toUserOperation())
       if (hash !== preparedHash) throw new Error('SPONSORSHIP_SIGNED_MISMATCH')
@@ -220,10 +228,12 @@ export default function WalletSpike() {
       // SDK initialization uses public metadata; no WebAuthn request is made.
       const pack = await initializeWallet(passkey)
       const safe = await pack.protocolKit.getAddress() as WalletSnapshot['address']
-      const expected = wallet?.address || pendingRef.current?.safeAddress
-      if (expected && safe.toLowerCase() !== expected.toLowerCase()) throw new Error('OWNER_MISMATCH')
-      const mint = mintTransaction(safe)
-      setSponsorshipReport(await diagnoseSponsorship(pack, safe, mint.transaction, sponsorshipReads))
+      const expected = [wallet?.address, pendingRef.current?.safeAddress].filter(Boolean)
+      if (expected.some(address => safe.toLowerCase() !== address!.toLowerCase())) throw new Error('OWNER_MISMATCH')
+      const mint = diagnosticMintTransaction(safe, pendingRef.current)
+      const report = await diagnoseSponsorship(pack, safe, mint.transaction, sponsorshipReads)
+      if (report.preparation) { report.preparation.tokenId = mint.tokenId; report.preparation.reusedPendingMint = mint.reusedPendingMint }
+      setSponsorshipReport(report)
     } catch (cause) {
       setSponsorshipReport({ checks: {}, valid: false, error: diagnose(cause, 'prepare', 'no') })
     } finally { setBusy(false); lock.current = false }
@@ -261,6 +271,8 @@ export default function WalletSpike() {
       <h2>Preparation-only sponsorship diagnostic</h2>
       <p>Request a tutorial NFT sponsorship quote using the saved public wallet metadata. No passkey approval, signing, broadcast, or attempt-history changes. A valid quote is not an onchain transaction.</p>
       <button onClick={() => void probeSponsorship()} disabled={busy}>Diagnose NFT sponsorship (no signing or sending)</button>
+      <p>The report applies the configured verification allowance, requests a fresh quote, re-estimates with its returned paymaster data and checks the serialized budget. An existing mint attempt supplies the original token ID. Sending runs these checks again before signing. This does not check bundler acceptance or prove a real passkey signature.</p>
+      {sponsorshipReport?.gasTrace?.budgetCheck && !sponsorshipReport.gasTrace.budgetCheck.fits && <p className="notice">The estimated bundler budget exceeds 16,000,000 including the executor reserve. Signing is blocked.</p>}
       {sponsorshipReport && <pre>{JSON.stringify(sponsorshipReport, null, 2)}</pre>}
     </section>}
 

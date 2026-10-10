@@ -96,7 +96,12 @@ test('preparation diagnostic failure cannot prompt a passkey, broadcast, or chan
   await page.addInitScript(() => {
     // Isolated public metadata fixture; not a real passkey or wallet identity.
     localStorage.setItem('continuity-wallet-sepolia-passkey-v1', JSON.stringify({ rawId: '00', coordinates: { x: `0x${'11'.repeat(32)}`, y: `0x${'22'.repeat(32)}` } }))
-    localStorage.setItem('continuity-wallet-sepolia-pending-v1-history', '[]')
+    localStorage.setItem('continuity-wallet-sepolia-pending-v1', JSON.stringify({
+      userOperationHash: `0x${'11'.repeat(32)}`, safeAddress: '0x1111111111111111111111111111111111111111', kind: 'mint',
+      description: 'Tutorial NFT mint: token 7 to this Safe. Zero ETH transferred.', state: 'rejected', acceptance: 'no',
+      submissionError: { stage: 'submit', at: '2026-01-01T00:00:00Z', message: 'Gas limit rejected', httpStatus: 200, rpcCode: -32602, acceptance: 'no' },
+    }))
+    localStorage.setItem('continuity-wallet-sepolia-pending-v1-history', '[{"description":"Preserved test history"}]')
     Object.defineProperty(navigator.credentials, 'get', { value: async () => { throw new Error('Preparation must never request passkey signing') } })
     Object.defineProperty(navigator.credentials, 'create', { value: async () => { throw new Error('Preparation must never create a passkey') } })
   })
@@ -116,5 +121,6 @@ test('preparation diagnostic failure cannot prompt a passkey, broadcast, or chan
   await expect(report).not.toContainText('Preparation must never')
   expect(await page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()))).toBe(storageBefore)
   expect(broadcasts).toBe(0)
+  await expect(page.getByText('Gas limit rejected', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
 })
