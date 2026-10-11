@@ -4,7 +4,7 @@
   --line: #e5e8ed; --accent: #b74515; --accent-soft: #fff0e7;
   --green: #216348; --warning: #805816; --radius: 16px;
 }
-.product { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; color: var(--ink); background: var(--canvas); min-height: 100dvh; }
+.product { font-family: var(--font-continuity), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; color: var(--ink); background: var(--canvas); min-height: 100dvh; }
 .product *, .product *::before, .product *::after { box-sizing: border-box; }
 .product a { color: var(--ink); text-decoration: none; }
 .product a:hover { color: var(--accent); }
@@ -38,6 +38,43 @@
 .product pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding: 16px; background: var(--canvas); border-radius: 9px; }
 .skip-link { position: fixed; top: -100px; left: 16px; padding: 12px; background: white; z-index: 100; }
 .skip-link:focus { top: 12px; }
+
+/* Guided account and recovery onboarding */
+.onboarding-layout { max-width: 690px; margin: 0 auto; }
+.onboarding-layout .page-heading { margin-bottom: 25px; }
+.onboarding-progress { list-style: none; display: flex; gap: 12px; padding: 0; margin: 0 0 24px; }
+.onboarding-progress li { flex: 1; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; padding: 11px 0; border-bottom: 2px solid var(--line); }
+.onboarding-progress li>span { width: 25px; height: 25px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: #e9ecf1; font-size: 11px; }
+.onboarding-progress li[aria-current=step] { color: var(--ink); border-color: var(--accent); font-weight: 650; }
+.onboarding-progress li[aria-current=step]>span { color: white; background: var(--ink); }
+.onboarding-progress li.complete { color: var(--green); border-color: var(--green); }
+.product .onboarding-card { background: white; padding: 34px; border: 1px solid var(--line); border-radius: var(--radius); }
+.onboarding-card h2 { font-size: 25px; letter-spacing: -.8px; margin-bottom: 14px; }
+.onboarding-card .eyebrow { margin-top: 20px; }
+.onboarding-symbol { width: 57px; height: 57px; display: grid; place-items: center; border-radius: 15px; background: var(--accent-soft); color: var(--accent); margin-bottom: 24px; }
+.product .onboarding-primary { width: 100%; margin: 16px 0; min-height: 50px; }
+.onboarding-benefit { display: flex; gap: 12px; padding: 17px; border-radius: 10px; background: var(--canvas); color: var(--muted); margin: 24px 0 12px; font-size: 13px; }
+.onboarding-benefit .ui-icon { margin-top: 3px; }
+.onboarding-benefit p { margin: 0; }
+.onboarding-card .quiet-link { display: block; text-align: center; margin-top: 14px; }
+.onboarding-caption { text-align: center; margin-top: 22px; font-size: 11px; color: var(--muted); }
+.product .onboarding-entry { width: 100%; text-align: center; margin-top: 12px; }
+.product .welcome-onboarding { margin: 10px 0; }
+.guided-setup>.small { margin-top: 18px; }
+.friend-workflow>div { position: relative; padding: 19px 0 19px 38px; border-top: 1px solid var(--line); }
+.friend-workflow>div>span { position: absolute; left: 0; top: 19px; width: 24px; height: 24px; display: grid; place-items: center; background: var(--canvas); border-radius: 50%; color: var(--muted); font-size: 11px; }
+.friend-workflow p { color: var(--muted); font-size: 13px; }
+.setup-guardians>div { display: flex; flex-direction: column; gap: 5px; padding: 17px 0; border-top: 1px solid var(--line); }
+.setup-guardians code { color: var(--muted); }
+.setup-receipt { margin-top: 18px!important; border: 1px solid var(--line)!important; padding: 18px!important; border-radius: 10px!important; }
+.setup-receipt button { margin: 8px 8px 0 0; }
+.setup-receipt a { color: var(--accent); }
+.asset-picker { display: grid; grid-template-columns: 50px 1fr; gap: 0 16px; align-items: center; margin-bottom: 20px; }
+.asset-picker label { margin: 0; }
+.asset-picker select { margin: 0; }
+.asset-picker p { grid-column: 2; margin: 6px 0 0; font-size: 11px; }
+.eth-symbol { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; background: #edf0f9; color: #53668c; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+@media(max-width:600px) { .product .onboarding-card { padding: 23px 20px; } .onboarding-card h2 { font-size: 23px; } .onboarding-progress { gap: 8px; } .onboarding-progress li { gap: 6px; font-size: 10px; } .friend-workflow>div { padding-left: 32px; } .friend-workflow input[type=file] { font-size: 11px; padding: 10px 7px; } }
 
 /* Shell */
 .app-header { position: fixed; inset: 0 auto 0 0; width: 224px; background: white; border-right: 1px solid var(--line); z-index: 25; }

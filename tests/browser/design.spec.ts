@@ -27,7 +27,7 @@ for(const [name,width,height] of [['desktop',1440,900],['laptop',1280,800],['iph
     // A bounding box alone misses occlusion by a header; hit-test the badge.
     expect(await page.locator('.network-label').evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})).toBe(true)
     await fits(page);await capture(page,`${name}-wallet`)
-    await page.getByRole('link',{name:'Send USDC',exact:true}).click()
+    await page.getByRole('main').getByRole('link',{name:'Send',exact:true}).click()
     await expect(page.getByText('Balance: 12.345678 USDC',{exact:true})).toBeVisible()
     await expect(page.getByRole('button',{name:'Review transfer'})).toBeDisabled()
     await page.getByLabel('Recipient address').fill('0x419D08ffDD36aE0Ebcc5d652D029D50c33CfdD86')

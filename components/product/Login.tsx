@@ -22,6 +22,7 @@ export default function Login(){
       <p className="muted">No email password or seed phrase. Sign-in restores your wallet; sending still needs a separate approval.</p>
       {error && <p className="alert" role="alert">{error}</p>}
       <button className="button-primary access-primary" disabled={busy} onClick={()=>void connect()}><Icon name="key" size={18}/>{busy?'Waiting for your device…':'Continue with passkey'}</button>
+      <Link className="button onboarding-entry" href="/onboarding">New here? Start with your Swissquote demo account</Link>
       <button className="access-secondary" disabled={busy} onClick={()=>void connect(true)}>Create wallet</button>
       {message && <p role="status" className="muted">{message}</p>}
       <Link href="/recovery">Lost access? Recover your wallet</Link>

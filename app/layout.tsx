@@ -1,6 +1,9 @@
 import type { Metadata,Viewport } from 'next'
+import localFont from 'next/font/local'
 import './globals.css'
 import './product.css'
+
+const manrope=localFont({src:'../public/fonts/manrope-latin.woff2',variable:'--font-continuity',weight:'400 700',display:'swap'})
 
 export const metadata: Metadata = {
   title: 'Continuity — Your wallet, your control',
@@ -11,5 +14,5 @@ export const metadata: Metadata = {
 export const viewport:Viewport={width:'device-width',initialScale:1,viewportFit:'cover',themeColor:'#f5f6f8'}
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <html lang="en"><body>{children}</body></html>
+  return <html lang="en"><body className={manrope.variable}>{children}</body></html>
 }
