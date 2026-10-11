@@ -26,3 +26,22 @@ test('test relayer cannot touch the accepted Safe or an address outside its allo
     assert.equal(allowedSafe('0x1111111111111111111111111111111111111111'),'0x1111111111111111111111111111111111111111')
   } finally {if(previous===undefined)delete process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES;else process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=previous}
 })
+
+test('a malformed unrelated allowlist entry fails closed with a configuration-specific error',()=> {
+  const previous=process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES
+  const target='0x1111111111111111111111111111111111111111'
+  // This older disposable address has the same bytes as the canonical address,
+  // but its mixed-case checksum is invalid. It previously obscured the cause.
+  const invalidChecksum='0xC6EfE07F9D421C0DAE6d4e198767425612c8eC22'
+  try {
+    process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=`${target},${invalidChecksum}`
+    assert.throws(()=>allowedSafe(target),/^Error: RECOVERY_INVALID_SAFE_ALLOWLIST$/)
+    assert.throws(()=>allowedSafe(EXISTING_SAFE),/APPROVAL/)
+    process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=`${target},${invalidChecksum.toLowerCase()}`
+    assert.equal(allowedSafe(target),target)
+    assert.equal(allowedSafe(invalidChecksum.toLowerCase()).toLowerCase(),invalidChecksum.toLowerCase())
+    assert.throws(()=>allowedSafe('0x2222222222222222222222222222222222222222'),/ALLOWLISTED/)
+    // Invalid submitted identities retain the address error, not a config error.
+    assert.throws(()=>allowedSafe(invalidChecksum),/^Error: RECOVERY_INVALID_ADDRESS$/)
+  } finally {if(previous===undefined)delete process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES;else process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=previous}
+})

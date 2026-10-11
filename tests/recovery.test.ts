@@ -22,6 +22,8 @@ test('operator and allowlist failures explain the existing setup without replaci
   }
   assert.match(recoveryErrorMessage('RECOVERY_SAFE_NOT_ALLOWLISTED'),/RECOVERY_ALLOWED_SAFE_ADDRESSES/)
   assert.match(recoveryErrorMessage('RECOVERY_SAFE_NOT_ALLOWLISTED'),/restart the server/)
+  assert.match(recoveryErrorMessage('RECOVERY_INVALID_SAFE_ALLOWLIST'),/correct checksums or lowercase/)
+  assert.match(recoveryErrorMessage('RECOVERY_INVALID_SAFE_ALLOWLIST'),/before signing or sending/)
   assert.equal(recoveryErrorMessage('RECOVERY_INVALID_METADATA_PROOF'),'RECOVERY_INVALID_METADATA_PROOF')
 })
 test('recovery protected requires onchain 3 distinct non-owner guardians and threshold two',()=> {

@@ -22,7 +22,10 @@ export const bankAddress=()=>secretAccount(process.env.RECOVERY_INSTITUTIONAL_PR
 export function allowedSafe(value:string):Address {
   const safe=address(value)
   assertDisposableSafe(safe)
-  const allow=(process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES || '').split(',').filter(Boolean).map(a=>address(a.trim()).toLowerCase())
+  let allow:string[]
+  try {
+    allow=(process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES || '').split(',').filter(Boolean).map(a=>address(a.trim()).toLowerCase())
+  } catch { throw new Error('RECOVERY_INVALID_SAFE_ALLOWLIST') }
   if (!allow.includes(safe.toLowerCase())) throw new Error('RECOVERY_SAFE_NOT_ALLOWLISTED')
   return safe
 }

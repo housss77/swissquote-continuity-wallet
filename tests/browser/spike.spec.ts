@@ -135,6 +135,11 @@ test('backup deployment explains missing operator and server rejection without s
   await expect(alert).toContainText('RECOVERY_ALLOWED_SAFE_ADDRESSES')
   await expect(alert).toContainText('restart the server')
   expect(posts).toBe(2);expect(broadcasts).toBe(0)
+  apiError='RECOVERY_INVALID_SAFE_ALLOWLIST'
+  await deploy.click()
+  await expect(alert).toContainText('RECOVERY_INVALID_SAFE_ALLOWLIST')
+  await expect(alert).toContainText('correct checksums or lowercase')
+  expect(posts).toBe(3);expect(broadcasts).toBe(0)
   expect(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))).toBe(storageBefore)
   await expect(page.getByText(signer,{exact:true})).toBeVisible()
   await expect(page.getByText('Verified Sepolia transaction:',{exact:false})).toHaveCount(0)

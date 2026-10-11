@@ -7,6 +7,8 @@ export function recoveryErrorMessage(message:string):string {
       return 'RECOVERY_OPERATOR_UNAUTHORIZED: the demo operator credential is missing or incorrect. Enter the existing RECOVERY_DEMO_OPERATOR_TOKEN from .env.local under Local demo operator; it is not your Windows Hello PIN. The API rejected this request before signing or sending.'
     case 'RECOVERY_SAFE_NOT_ALLOWLISTED':
       return 'RECOVERY_SAFE_NOT_ALLOWLISTED: this disposable Safe is not enabled for the demo relayer. Add only its address to RECOVERY_ALLOWED_SAFE_ADDRESSES in .env.local and restart the server. Keep your existing passkey; do not enable the original Safe.'
+    case 'RECOVERY_INVALID_SAFE_ALLOWLIST':
+      return 'RECOVERY_INVALID_SAFE_ALLOWLIST: an entry in RECOVERY_ALLOWED_SAFE_ADDRESSES in .env.local is invalid. Use valid Ethereum addresses with correct checksums or lowercase formatting, then restart the server. The request was rejected before signing or sending. Keep your existing passkey.'
     default:return message
   }
 }

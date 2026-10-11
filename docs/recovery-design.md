@@ -137,7 +137,7 @@ Never print the file or paste keys/operator tokens into chat.
 | RECOVERY_RELAYER_PRIVATE_KEY | Separate funded throwaway server signer |
 | RECOVERY_INSTITUTIONAL_PRIVATE_KEY | Separate server-only demo bank guardian |
 | RECOVERY_DEMO_OPERATOR_TOKEN | Server-only random demo operator credential; enter locally when needed |
-| RECOVERY_ALLOWED_SAFE_ADDRESSES | Comma-separated disposable Safe allowlist, excluding the accepted Safe |
+| RECOVERY_ALLOWED_SAFE_ADDRESSES | Comma-separated disposable Safe allowlist; correct checksums or lowercase addresses; excludes the accepted Safe |
 
 Once funded and explicitly authorized to deploy:
 
