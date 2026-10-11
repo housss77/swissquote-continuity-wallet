@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "classification": "Historical human-device acceptance, verified earlier on Ethereum Sepolia",
+  "source": "docs/recovery-evidence.md",
+  "verifiedAt": "2026-10-11T03:38:35.658Z",
+  "chainId": 11155111,
+  "safe": "0xa46F0fb0AdD0B6c4Dae354aE2407e8f1162A6A06",
+  "originalSafe": "0x6f7c9faba9B6039255f2301935D891ffE6065e8C",
+  "oldOwner": "0x94a4F6affBd8975951142c3999aEAB7ecee555c2",
+  "newOwner": "0x1195F0aCdBf59F45c2C0E6FF4Bc40BF58821fBE1",
+  "spendingThreshold": 1,
+  "recoveryThreshold": 2,
+  "module": "0xDC07dEa53aE572EeF2Af0c553b470E6BE388adBC",
+  "aaModule": "0xa581c4A4DB7175302464fF3C06380BC3270b4037",
+  "delaySeconds": 180,
+  "observedWaitSeconds": 252,
+  "guardianPair": "Swissquote mock + independently signed third-party approval (B+C)",
+  "guardians": [
+    {"address":"0xEb46B6f8BEeAE07A42fbB1a772c1Bc892ebB8fA3","label":"Your backup passkey"},
+    {"address":"0xbED556C6B6F68815B506EC7cF962C8C483602aC1","label":"Swissquote demo"},
+    {"address":"0x419D08ffDD36aE0Ebcc5d652D029D50c33CfdD86","label":"Trusted third party"}
+  ],
+  "sponsor": "0x6666666666667849c56f2850848cE1C4da65c68b",
+  "recoveredUserOperationHash": "0xc39cf6ef3804a6de4d92e797a5ab4aff1f45cd01176b8acd1b2789c354c6db5b",
+  "nftContract": "0xBb9ebb7b8Ee75CDBf64e5cE124731A89c2BC4A07",
+  "recoveredTokenId": "71765649581188723636853532248003429882839880648380288841215969319976963251148",
+  "transactions": [
+    {"id":"enrollment","label":"Recovery protection enrolled","detail":"Three guardians registered, recovery threshold two. Spending owner unchanged.","hash":"0x52b695e1c6efc91daecbe61054265bf4a049924d8711b5aa8b535ecd8009c6be","block":11888940},
+    {"id":"initiation","label":"Two guardians approved recovery","detail":"B+C signatures approved the same replacement owner. No original customer signature was required.","hash":"0x0279e44352fe80bec8c3a3372e9d5acc40ce0d7cc133e554404a6d6d28876c21","block":11889011},
+    {"id":"finalization","label":"Spending owner replaced","detail":"Same Safe, new owner. Actual block time elapsed: 252 seconds; configured test delay: 180 seconds.","hash":"0x46632998eeaccb86aa4ede0819933ef553973a2ef9ee3f1b706efafc4a97d6bc","block":11889032},
+    {"id":"recovered-spend","label":"New passkey signed a sponsored NFT mint","detail":"Matching successful EntryPoint event and NFT ownership verified. Zero ETH transferred; this was not a USDC transfer.","hash":"0x2c48f3936c4c04f36a073476f2e194ddc71f1514456e38906ed35c3bbc08c579","block":11889041}
+  ],
+  "limitations": [
+    "Physical Windows Hello use was reported by the human. Receipts prove cryptographic authorization, not physical hardware.",
+    "Owner revocation does not erase an old credential or prove synced credentials are inaccessible.",
+    "Institutional identity checks and organizational independence are simulated.",
+    "The human recovery exercised B+C. A+B and A+C were covered by separate automated real-Sepolia tests using virtual authenticators.",
+    "No live USDC transfer has been verified in this evidence set."
+  ]
+}

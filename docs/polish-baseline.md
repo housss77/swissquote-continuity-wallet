@@ -40,3 +40,12 @@ First rendered design review inspected actual public-wallet desktop and 390px
 mobile screenshots. Raw diagnostics remain in the lab. New write restrictions
 protect both acceptance wallets' configuration; institutional authentication is
 unchanged. USDC submission and presentation mode are subsequent checkpoints.
+
+## Evidence presentation checkpoint
+
+Six-scene presentation and network fallback browser checks passed. TypeScript
+and the evidence-provenance unit test passed. The new read-only `demo:check`
+independently rechecked the published receipts, matching module events, actual
+252-second waiting period, recovered sponsored operation and NFT ownership.
+Current ownership, guardian configuration and the original Safe's baseline
+nonces passed. USDC remains zero; no live USDC success is claimed.

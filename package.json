@@ -8,6 +8,8 @@
     "npm": "11.13.0"
   },
   "scripts": {
+    "demo:check": "tsx scripts/demo-readiness.ts",
+    "demo:screenshots": "node scripts/capture-ui.mjs",
     "dev": "next dev --webpack --hostname localhost",
     "build": "next build --webpack",
     "start": "next start --hostname localhost",

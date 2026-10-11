@@ -1,2 +1,2 @@
-import {Shell,PageHeading} from '../../components/product/Shell'
-export default function ActivityPage(){return <Shell><PageHeading title="Activity">Transaction receipts and recovery evidence.</PageHeading><p>Your previous evidence is preserved in the advanced lab. Confirmed historical recovery will be presented separately from new transactions.</p><a className="button" href="/lab">View preserved attempts</a></Shell>}
+import Activity from '../../components/product/Activity'
+export default function ActivityPage(){return <Activity/>}
