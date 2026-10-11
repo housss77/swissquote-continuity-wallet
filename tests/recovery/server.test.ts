@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { randomBytes } from 'node:crypto'
 import { allowedSafe, authenticateOperator, checkBrowserOrigin } from '../../lib/recovery/server'
 import { EXISTING_SAFE } from '../../lib/recovery/contracts'
+import {DEMO_SAFE} from '../../lib/product'
 test('institutional approval requires the exact operator secret and rejects anonymous callers',()=> {
   const previous=process.env.RECOVERY_DEMO_OPERATOR_TOKEN
   process.env.RECOVERY_DEMO_OPERATOR_TOKEN=randomBytes(32).toString('hex')
@@ -44,4 +45,9 @@ test('a malformed unrelated allowlist entry fails closed with a configuration-sp
     // Invalid submitted identities retain the address error, not a config error.
     assert.throws(()=>allowedSafe(invalidChecksum),/^Error: RECOVERY_INVALID_ADDRESS$/)
   } finally {if(previous===undefined)delete process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES;else process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=previous}
+})
+test('the human-device acceptance Safe stays configuration-locked even when explicitly allowlisted',()=>{
+ const previous=process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES
+ try{process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=DEMO_SAFE;assert.throws(()=>allowedSafe(DEMO_SAFE),/VERIFIED_WALLET_CONFIGURATION_LOCKED/)}
+ finally{if(previous===undefined)delete process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES;else process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES=previous}
 })

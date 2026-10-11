@@ -178,6 +178,7 @@ export async function submitOperation(signed: Awaited<ReturnType<Safe4337Pack['s
 }
 
 export async function verifyOperationInclusion(pending: PendingOperation, result: BundlerReceipt | null, remainingMs: number) {
+  assertSepolia(await publicClient.getChainId())
   const hash = result?.receipt.transactionHash || pending.transactionHash
   if (!isHash(hash)) throw new Error('EVIDENCE_MISMATCH')
   const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 2, timeout: remainingMs })

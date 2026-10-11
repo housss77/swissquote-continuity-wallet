@@ -3,7 +3,7 @@ import {decodeFunctionData,encodeFunctionResult,domainSeparator,type Address} fr
 import {DEMO_SAFE,CUSTOMER_SAFE_KEY,tokenAbi,USDC_ADDRESS} from '../../lib/product'
 import {expectedModuleCode,recoveryAbi,safeAbi} from '../../lib/recovery/contracts'
 // Isolated synthetic RPC fixtures. Never public-chain acceptance evidence.
-export async function walletFixture(page:Page,{balance=0n,protectedWallet=true,unavailable=false}:{balance?:bigint;protectedWallet?:boolean;unavailable?:boolean}={}) {
+export async function walletFixture(page:Page,{balance=0n,protectedWallet=true,unavailable=false,receipt}:{balance?:bigint;protectedWallet?:boolean;unavailable?:boolean;receipt?:unknown}={}) {
  await page.addInitScript(({safe,key})=>localStorage.setItem(key,JSON.stringify({version:1,safe})),{safe:DEMO_SAFE,key:CUSTOMER_SAFE_KEY})
  let sends=0
  const abi=[...tokenAbi,...safeAbi,...recoveryAbi]
@@ -17,6 +17,8 @@ export async function walletFixture(page:Page,{balance=0n,protectedWallet=true,u
   else if(body.method==='eth_blockNumber')result='0x100'
   else if(body.method==='eth_getBalance')result='0x0'
   else if(body.method==='eth_getCode')result=expectedModuleCode(180)
+  else if(body.method==='eth_getTransactionReceipt' && receipt)result=receipt
+  else if(body.method==='eth_getLogs' && receipt)return route.abort('failed') // Fixture deliberately lacks archive/log reconciliation support.
   else if(body.method==='eth_getBlockByNumber')result={number:'0x100',timestamp:'0x100',hash:`0x${'11'.repeat(32)}`,transactions:[]}
   else if(body.method==='eth_call'){
    const call=decodeFunctionData({abi,data:body.params[0].data}),name=call.functionName

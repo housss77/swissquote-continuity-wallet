@@ -11,6 +11,7 @@ import { parseIntent, validateIntent } from '../lib/recovery/signatures'
 import type { RecoveryIntent } from '../lib/recovery/types'
 import { diagnose } from '../lib/diagnostics'
 import { recoveryErrorMessage } from '../lib/recovery/errors'
+import {Shell} from './product/Shell'
 export default function GuardianApproval() {
   const [request,setRequest]=useState<EnrollmentPreview|RecoveryIntent|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
   const [wallets,setWallets]=useState<GuardianWallet[]>([]),[selected,setSelected]=useState<GuardianWallet|null>(null)
@@ -71,7 +72,7 @@ export default function GuardianApproval() {
       downloadPublicJson(approval,'continuity-guardian-approval.json')
     } catch(e){setError(cleanError(e))} finally{setBusy(false)}
   }
-  return <main><h1>Independent guardian approval</h1><p>Use the guardian’s own wallet in a separate browser context. Review the wallet and replacement identity with the customer through a trusted channel before signing.</p>
+  return <Shell><div className="guardian-flow"><h1>Independent guardian approval</h1><p className="lede">Use the guardian’s own wallet in a separate browser context. Review the wallet and replacement identity with the customer through a trusted channel before signing.</p>
     <section aria-label="Guardian wallet connection"><h2>Guardian wallet</h2>
       <label htmlFor="guardian-wallet-provider">Wallet provider</label><select id="guardian-wallet-provider" disabled={busy} value={selected?.id || ''} onChange={e=>setSelected(wallets.find(v=>v.id===e.target.value) || null)}>
         <option value="">Select your wallet</option>{wallets.map(v=><option key={v.id} value={v.id}>{v.label}</option>)}
@@ -86,5 +87,5 @@ export default function GuardianApproval() {
       {'kind' in request?<><p>Enroll as guardian <code>{request.third}</code>; 2-of-3 recovery; delay {request.delay} seconds.</p><p>This enrollment proof cannot execute a recovery.</p></>:<><p>Replace spending owner with <code>{request.newOwner}</code>; threshold 1; nonce {request.nonce}.</p><p>Two guardians can authorize this owner rotation after the onchain delay.</p></>}
       <button disabled={busy} onClick={()=>void sign()}>Sign and download verified public approval</button></section>}
     {error && <p role="alert">{error}</p>}<p>No private key is imported, stored or returned by this application. Organizational independence is simulated if one developer controls both roles.</p>
-  </main>
+  </div></Shell>
 }

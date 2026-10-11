@@ -30,8 +30,8 @@ export default function Send() {
   }
   useEffect(()=>{
     let live=true
-    void import('../../lib/wallet').then(async sdk=>{const saved=sdk.loadPending();if(!live)return;setPending(saved);if(saved?.transactionHash){try{const result=await sdk.verifyOperationInclusion(saved,null,120_000);if(live){const confirmed={...saved,state:'included' as const,acceptance:'yes' as const};sdk.savePending(confirmed);setPending(confirmed);setProof(result)}}catch{if(live)setMessage('Saved receipt could not be verified now. Check confirmation; do not resend.')}}}).catch(()=>{if(live)setProblem('Saved operation cannot be read. Preserve browser data and inspect Advanced lab before sending.')})
-    const listener=()=>{void import('../../lib/wallet').then(({loadPending})=>setPending(loadPending())).catch(()=>setProblem('Saved operation could not be read. Sending is blocked.'))}
+    void import('../../lib/wallet').then(async sdk=>{const saved=sdk.loadPending();if(!live)return;setPending(saved);if(saved?.transactionHash){try{const result=await sdk.verifyOperationInclusion(saved,null,120_000);if(live && sdk.loadPending()?.userOperationHash===saved.userOperationHash){const confirmed={...saved,state:'included' as const,acceptance:'yes' as const};sdk.savePending(confirmed);setPending(confirmed);setProof(result)}}catch{if(live)setMessage('Saved receipt could not be verified now. Check confirmation; do not resend.')}}}).catch(()=>{if(live)setProblem('Saved operation cannot be read. Preserve browser data and inspect Advanced lab before sending.')})
+    const listener=()=>{setProof(null);setQuote(null);setMessage('');void import('../../lib/wallet').then(({loadPending})=>setPending(loadPending())).catch(()=>setProblem('Saved operation could not be read. Sending is blocked.'))}
     window.addEventListener('storage',listener)
     if(new URLSearchParams(location.search).get('demo')==='1'){setRecipient(evidence.guardians[2].address);setAmount('1')}
     return()=>{live=false;window.removeEventListener('storage',listener)}
@@ -82,6 +82,7 @@ export default function Send() {
       if(sameAddress(current.safe,DEMO_SAFE) && (!current.recovery?.protected || current.recovery.request.executableAt!==0n || !sameAddress(current.owners[0],evidence.newOwner)
         || !evidence.guardians.every(g=>current.recovery!.guardians.some(v=>sameAddress(v,g.address)))))throw new Error('DEMO_CONFIGURATION_CHANGED')
       assertFreshQuote(q.at)
+      if(sdk.loadPending())throw new Error('SEND_PREVIOUS_ATTEMPT')
       const update=(v:PendingOperation)=>{sdk.savePending(v);setPending(v)}
       const attempt:PendingOperation={kind:'usdc',usdcIntent:q.intent,safeAddress:q.intent.safe,paymasterAddress:q.paymasterAddress,userOperationHash:sdk.operationHash(q.operation.toUserOperation()),state:'prepared',acceptance:'no',description:`Send ${formatUnits(BigInt(q.intent.amount),6)} test USDC to ${q.intent.recipient}`,createdAt:new Date().toISOString()}
       update(attempt);setMessage('Waiting for your spending passkey approval.');setProof(null)
@@ -103,12 +104,13 @@ export default function Send() {
   async function check() {
     const sdk=await import('../../lib/wallet'),saved=sdk.loadPending()
     if(!saved)return
-    const result=await sdk.confirmOperation(saved,v=>{sdk.savePending(v);setPending(v)})
-    if(result){setProof(result);setMessage(saved.kind==='usdc'?'Transfer confirmed on Sepolia.':'Earlier operation verified. Preserve it before preparing a new transfer.');await refresh()}
+    const result=await sdk.confirmOperation(saved,v=>{if(sdk.loadPending()?.userOperationHash!==saved.userOperationHash)throw new Error('SEND_ATTEMPT_CHANGED');sdk.savePending(v);setPending(v)})
+    if(result && sdk.loadPending()?.userOperationHash===saved.userOperationHash){setProof(result);setMessage(saved.kind==='usdc'?'Transfer confirmed on Sepolia.':'Earlier operation verified. Preserve it before preparing a new transfer.');await refresh()}
   }
   async function preserve() {
     await withSendLock(async()=>{const sdk=await import('../../lib/wallet'),saved=sdk.loadPending();if(!saved)return
       // An included record loaded from storage becomes unknown until verified.
+      if(proof && (proof.userOperationHash!==saved.userOperationHash || !sameAddress(proof.safeAddress,saved.safeAddress)))throw new Error('SEND_PREVIOUS_ATTEMPT')
       if(!proof && !['rejected','failed'].includes(saved.state) && !(saved.state==='prepared' && saved.acceptance==='no'))throw new Error('SEND_PREVIOUS_ATTEMPT')
       sdk.archivePending(proof?{...saved,state:'included',transactionHash:proof.transactionHash}:saved);setPending(null);setProof(null);setMessage('Evidence preserved. You can prepare a new transfer manually.')
     })

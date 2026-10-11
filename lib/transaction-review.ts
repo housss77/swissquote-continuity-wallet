@@ -14,7 +14,7 @@ export function transactionReview(chainId:number,target:Address,data:Hex,policy=
     if(!['transfer','approve'].includes(call.functionName))throw new Error('Unsupported call')
     const [address,units]=call.args as readonly [Address,bigint]
     const official=sameAddress(target,USDC_ADDRESS)
-    const quantity=official?`${formatUnits(units,6)} test USDC`:`${units} base units (asset not verified)`
+    const quantity=call.functionName==='approve' && units===maxUint256?(official?'unlimited test USDC':'unlimited token access (asset not verified)'):official?`${formatUnits(units,6)} test USDC`:`${units} base units (asset not verified)`
     if(call.functionName==='approve') {
       if(units===maxUint256)warnings.push('Unlimited allowance lets this spender move all current and future tokens until revoked.')
       else if(units>policy.largeAllowance)warnings.push('Large allowance. Consider approving only the amount needed.')

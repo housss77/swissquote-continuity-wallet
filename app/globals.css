@@ -152,7 +152,7 @@ summary { cursor:pointer;font-weight:500;min-height:32px; }
 /* Customer transfer and advisory review share the existing banking rhythm. */
 .product .send-form,.product .send-review,.product .transfer-result{max-width:680px;margin-top:32px;padding:28px;border:1px solid var(--line);background:var(--surface);border-radius:8px}
 .product .send-form label{display:block;margin:24px 0 8px;font-weight:600}
-.product .send-form input{width:100%;min-width:0}
+.product .send-form input{width:100%;min-width:0;margin:0}
 .product .amount-input{display:flex;align-items:center;gap:12px}
 .product .amount-input input{flex:1;width:0}
 .product .test-notice{font-size:14px;color:var(--muted);padding:12px 0;border-bottom:1px solid var(--line)}
@@ -161,7 +161,12 @@ summary { cursor:pointer;font-weight:500;min-height:32px; }
 .product .review-facts dd{margin:0;font-weight:500;overflow-wrap:anywhere}
 .product .safety-review{padding:20px;margin:24px 0;background:var(--canvas);border:1px solid var(--line);border-radius:6px}
 .product .safety-review h3{margin-top:0}
+.product .safety-review p{overflow-wrap:anywhere}
 .product .transfer-result.confirmed{border-left:3px solid #247049}
 .product .status-badge{padding:4px 8px;font-size:12px;border:1px solid var(--line);border-radius:4px}
 .product .empty-state{padding:28px 0}
+.product .guardian-flow{max-width:760px}
+.product .guardian-flow section{padding:24px;margin:24px 0;border:1px solid var(--line);background:white;border-radius:6px}
+.product .guardian-flow input[type=file]{margin:12px 0 24px;padding:12px;background:white}
+.product .address-line .button-text{min-height:44px}
 @media(max-width:600px){.product .send-form,.product .send-review,.product .transfer-result{padding:20px 16px;margin-top:24px}.product .review-facts{grid-template-columns:1fr;gap:6px}.product .review-facts dd{margin-bottom:12px}.product .send-form .section-heading{align-items:flex-start;gap:8px;flex-direction:column}}
