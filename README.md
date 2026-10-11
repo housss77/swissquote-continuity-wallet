@@ -5,6 +5,7 @@ for an explicit sponsored test NFT activation, `/receive` for precise Circle
 funding checks, and `/demo` for the jury. The installable mobile web app needs a
 stable HTTPS deployment. Follow [phone deployment and acceptance](docs/phone-deployment.md)
 and [replaceable Swissquote sponsorship boundary](docs/sponsorship-adapter.md).
+Test results and the short presenter checklist: [phone handoff](docs/mobile-handoff.md).
 Provider credentials now remain server-side. No hosting is provisioned yet;
 physical iPhone signing and live USDC remain human verification steps.
 
