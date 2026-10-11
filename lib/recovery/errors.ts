@@ -1,6 +1,14 @@
 // Map sanitized API codes to guidance; never include the operator credential.
 export function recoveryErrorMessage(message:string):string {
   switch(message) {
+    case 'RECOVERY_THIRD_PARTY_WRONG_CHAIN':
+      return 'RECOVERY_THIRD_PARTY_WRONG_CHAIN: select Ethereum Sepolia (chain ID 11155111) in the chosen guardian wallet, then check the connection again. No approval was signed.'
+    case 'RECOVERY_WRONG_THIRD_PARTY_ACCOUNT':
+      return 'RECOVERY_WRONG_THIRD_PARTY_ACCOUNT: the first account returned by the chosen wallet does not match the guardian in the request. Select that account and authorize it for localhost in your wallet, then check the connection again. Compare the displayed wallet account with the request’s guardian address.'
+    case 'RECOVERY_GUARDIAN_ACCOUNT_UNAVAILABLE':
+      return 'RECOVERY_GUARDIAN_ACCOUNT_UNAVAILABLE: unlock your guardian wallet and use Connect guardian wallet to authorize its account for localhost. No approval was signed.'
+    case 'RECOVERY_INDEPENDENT_WALLET_UNAVAILABLE':
+      return 'RECOVERY_INDEPENDENT_WALLET_UNAVAILABLE: select the guardian wallet provider. If none is listed, enable its browser extension for this profile and refresh the page.'
     case 'RECOVERY_OPERATOR_REQUIRED':
       return 'Enter the demo operator credential under Local demo operator before deploying a signer. Use the existing RECOVERY_DEMO_OPERATOR_TOKEN from .env.local, not your Windows Hello PIN. Keep your saved passkey.'
     case 'RECOVERY_OPERATOR_UNAUTHORIZED':

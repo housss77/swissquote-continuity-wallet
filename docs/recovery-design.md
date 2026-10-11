@@ -173,6 +173,14 @@ No fund transfer from the accepted Safe is needed or permitted.
    request. The guardian uses `/guardian` on their own wallet browser to review,
    sign and return the public proof. Import it. Simulate/sign atomic protection
    once with the current spending passkey; verify three guardians/threshold two.
+   On `/guardian`, select the actual wallet under **Wallet provider** and use
+   **Connect guardian wallet (no signing)** to inspect its first authorized
+   account and chain. Enrollment requires the request's third-party address and
+   Ethereum Sepolia (11155111); a wrong network has a separate error from a wrong
+   account. Provider discovery follows [EIP-6963](https://eips.ethereum.org/EIPS/eip-6963),
+   with legacy provider arrays as fallback. Wallet names are self-reported;
+   account binding and cryptographic proof remain required. The app never
+   switches networks automatically or changes wallet credentials.
 5. Preserve the completed sponsored enrollment attempt using the explicit control
    before another sponsored action. The separate history remains intact.
    If enrollment is confirmed but its later metadata registration fails, refresh

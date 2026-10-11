@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { decodeFunctionData, encodeFunctionResult, domainSeparator, type Address } from 'viem'
+import { decodeFunctionData, encodeFunctionResult, domainSeparator, getAddress, type Address } from 'viem'
 import { expectedModuleCode, recoveryAbi, safeAbi, factoryAbi } from '../../lib/recovery/contracts'
 import { intentHash } from '../../lib/recovery/signatures'
 
@@ -82,6 +82,79 @@ test('recovery opens from a clean browser without an original wallet session',as
   await expect(page.getByRole('button',{name:'Find wallet',exact:true})).toBeDisabled()
   expect(await page.evaluate(()=>localStorage.length)).toBe(0)
   await expect(page.getByText('Owner rotation confirmed',{exact:false})).toHaveCount(0)
+})
+
+test('guardian selects the announced wallet and distinguishes chain, authorization and account failures without broadcasting',async({page})=>{
+  const safe='0x1111111111111111111111111111111111111111',owner='0x2222222222222222222222222222222222222222',backup='0x3333333333333333333333333333333333333333',bank='0x4444444444444444444444444444444444444444',third=getAddress('0x419d08ffdd36ae0ebcc5d652d029d50c33cfdd86')
+  await page.addInitScript(({third,safe})=>{
+    let mode='mainnet'
+    const calls:{provider:string;method:string;params?:unknown[]}[]=[]
+    Object.defineProperty(window,'guardianFixture',{value:{calls,setMode:(value:string)=>{mode=value}}})
+    const provider=(name:string)=>({request:async(args:{method:string;params?:unknown[]})=>{
+      calls.push({provider:name,...args})
+      if(name!=='MetaMask')throw Error('DEFAULT_PROVIDER_MUST_NOT_BE_USED')
+      if(args.method==='eth_chainId')return mode==='mainnet'?'0x1':'0xaa36a7'
+      if(args.method==='eth_accounts' || args.method==='eth_requestAccounts')return mode==='locked'?[]:[mode==='wrongAccount'?safe:third.toLowerCase()]
+      if(args.method==='eth_signTypedData_v4')throw Error('TEST_APPROVAL_CANCELLED')
+      throw Error('TEST_MUST_NOT_BROADCAST')
+    }})
+    const metamask=provider('MetaMask'),other=provider('Other')
+    Object.defineProperty(window,'ethereum',{value:other})
+    window.addEventListener('eip6963:requestProvider',()=>{
+      for(const [name,rdns,wallet] of [['Other','other.wallet',other],['MetaMask','io.metamask',metamask]] as const)
+        window.dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{name,rdns},provider:wallet}}))
+    })
+  },{third,safe})
+  const abi=[...safeAbi,...recoveryAbi]
+  let broadcasts=0
+  await page.route('**/*',async route=>{
+    if(new URL(route.request().url()).hostname==='localhost')return route.continue()
+    const body=route.request().postDataJSON()
+    let result:unknown
+    if(body.method==='eth_chainId')result='0xaa36a7'
+    else if(body.method==='eth_getCode')result=expectedModuleCode(180)
+    else if(body.method==='eth_getBlockByNumber')result={number:'0x1',timestamp:'0x100',hash:`0x${'11'.repeat(32)}`,transactions:[]}
+    else if(body.method==='eth_call'){
+      const call=decodeFunctionData({abi,data:body.params[0].data})
+      const values:Record<string,string|bigint|boolean|unknown[]>={VERSION:body.params[0].to.toLowerCase()===safe?'1.4.1':'0.2.0',getOwners:[owner],getThreshold:1n,isModuleEnabled:false,getGuardians:[],threshold:0n,nonce:0n,getRecoveryRequest:[0n,0n,0n,0n,[]],domainSeparator:domainSeparator({domain:{name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:body.params[0].to as Address}})}
+      result=encodeFunctionResult({abi,functionName:call.functionName,result:values[call.functionName]})
+    }else{broadcasts++;throw Error('UNEXPECTED_GUARDIAN_RPC')}
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
+  })
+  await page.goto('/guardian')
+  const select=page.getByLabel('Wallet provider',{exact:true}),connection=page.getByRole('region',{name:'Guardian wallet connection'}),alert=page.getByRole('main').getByRole('alert')
+  await expect(select).toHaveValue('')
+  await select.selectOption({label:'MetaMask (io.metamask)'})
+  await expect(connection).toContainText(third)
+  await expect(connection).toContainText('Wallet chain ID: 1')
+  const module=await page.evaluate(()=>fetch('/api/recovery').then(r=>r.json()).then(v=>v.config.module))
+  const preview={kind:'guardian_enrollment',chainId:11155111,safe,module,backup,bank,third,threshold:2,delay:180}
+  await page.getByLabel('Public enrollment or recovery request',{exact:true}).setInputFiles({name:'enrollment.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(preview))})
+  const sign=page.getByRole('button',{name:'Sign and download verified public approval',exact:true})
+  await sign.click()
+  await expect(alert).toContainText('RECOVERY_THIRD_PARTY_WRONG_CHAIN')
+  await expect(alert).not.toContainText('RECOVERY_WRONG_THIRD_PARTY_ACCOUNT')
+  for(const [mode,error] of [['locked','RECOVERY_GUARDIAN_ACCOUNT_UNAVAILABLE'],['wrongAccount','RECOVERY_WRONG_THIRD_PARTY_ACCOUNT']] as const){
+    await page.evaluate(mode=>(window as unknown as {guardianFixture:{setMode:(value:string)=>void}}).guardianFixture.setMode(mode),mode)
+    await sign.click();await expect(alert).toContainText(error)
+  }
+  let calls=await page.evaluate(()=>(window as unknown as {guardianFixture:{calls:{provider:string;method:string;params?:unknown[]}[]}}).guardianFixture.calls)
+  expect(calls.every(v=>v.provider==='MetaMask')).toBe(true)
+  expect(calls.some(v=>v.method==='eth_signTypedData_v4')).toBe(false)
+  await page.evaluate(()=>(window as unknown as {guardianFixture:{setMode:(value:string)=>void}}).guardianFixture.setMode('sepolia'))
+  await page.getByRole('button',{name:'Connect guardian wallet (no signing)',exact:true}).click()
+  await expect(alert).toHaveCount(0)
+  await expect(connection).toContainText('Wallet chain ID: 11155111 (Ethereum Sepolia)')
+  await sign.click();await expect(alert).toContainText('TEST_APPROVAL_CANCELLED')
+  calls=await page.evaluate(()=>(window as unknown as {guardianFixture:{calls:{provider:string;method:string;params?:unknown[]}[]}}).guardianFixture.calls)
+  const signing=calls.filter(v=>v.method==='eth_signTypedData_v4')
+  expect(signing).toHaveLength(1);expect(signing[0].params?.[0]).toBe(third)
+  const typed=JSON.parse(signing[0].params?.[1] as string)
+  expect(typed.message.third).toBe(third);expect(typed.message.safe).toBe(safe)
+  expect(typed.domain.chainId).toBe(11155111)
+  expect(calls.every(v=>v.provider==='MetaMask')).toBe(true)
+  expect(calls.some(v=>v.method.startsWith('eth_send'))).toBe(false);expect(broadcasts).toBe(0)
+  expect(await page.evaluate(()=>localStorage.length)).toBe(0)
 })
 
 test('backup deployment explains missing operator and server rejection without signing or changing identity',async({page})=>{
