@@ -1,6 +1,14 @@
 // Map sanitized API codes to guidance; never include the operator credential.
 export function recoveryErrorMessage(message:string):string {
   switch(message) {
+    case 'RECOVERY_THIRD_PARTY_POSSESSION_NOT_PROVEN':
+      return 'RECOVERY_THIRD_PARTY_POSSESSION_NOT_PROVEN: the approval is invalid or does not match the current Safe, guardian addresses, Sepolia chain, recovery module, threshold two and delay. Select the signed public approval for this exact enrollment request. Keep your existing passkeys and approval files; protection setup remains blocked.'
+    case 'RECOVERY_APPROVAL_FILE_INVALID':
+      return 'RECOVERY_APPROVAL_FILE_INVALID: select the downloaded signed public approval JSON (maximum 20 KB), rather than the unsigned enrollment request. Keep the existing approval file and passkeys.'
+    case 'RECOVERY_ENROLLMENT_INPUTS_REQUIRED':
+      return 'RECOVERY_ENROLLMENT_INPUTS_REQUIRED: find the disposable Safe, restore its saved backup identity, and enter the independent guardian address before importing its signed approval.'
+    case 'RECOVERY_ENROLLMENT_CHANGED':
+      return 'RECOVERY_ENROLLMENT_CHANGED: the enrollment configuration changed during verification. Review the displayed Safe and guardians, then import the approval for that exact configuration. No signing or sending occurred.'
     case 'RECOVERY_THIRD_PARTY_WRONG_CHAIN':
       return 'RECOVERY_THIRD_PARTY_WRONG_CHAIN: select Ethereum Sepolia (chain ID 11155111) in the chosen guardian wallet, then check the connection again. No approval was signed.'
     case 'RECOVERY_WRONG_THIRD_PARTY_ACCOUNT':

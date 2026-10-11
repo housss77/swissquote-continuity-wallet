@@ -181,6 +181,12 @@ No fund transfer from the accepted Safe is needed or permitted.
    with legacy provider arrays as fallback. Wallet names are self-reported;
    account binding and cryptographic proof remain required. The app never
    switches networks automatically or changes wallet credentials.
+   Importing the signed file shows **Independent guardian verified** with the
+   actual signer only after signature and complete configuration verification.
+   It does not activate protection. Invalid files or a changed enrollment
+   configuration invalidate the UI proof and keep protection setup disabled.
+   The downloaded files and saved passkeys remain intact; the same approval can
+   be selected again. Installation independently re-verifies the proof.
 5. Preserve the completed sponsored enrollment attempt using the explicit control
    before another sponsored action. The separate history remains intact.
    If enrollment is confirmed but its later metadata registration fails, refresh

@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { isAddress, type Address, type Hash, type Hex } from 'viem'
+import { hashTypedData, isAddress, type Address, type Hash, type Hex } from 'viem'
 import { publicClient, initializeWallet, walletSnapshot } from '../lib/wallet'
 import { ENTRY_POINT, EXPLORER } from '../lib/constants'
 import { diagnose } from '../lib/diagnostics'
@@ -18,7 +18,7 @@ import { atomicBatch, batchIntentValidator, enrollmentCalls } from '../lib/recov
 import { archiveRecoveryAttempt, checkRecoveryAttempt, loadRecoveryAttempt, sendPreparedRecovery } from '../lib/recovery/transport'
 import type { GuardianApproval, PublicCredential, RecoveryIntent, RecoveryState } from '../lib/recovery/types'
 import type { PendingOperation } from '../lib/operations'
-import { downloadPublicJson, enrollmentPreview, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
+import { downloadPublicJson, enrollmentPreview, enrollmentTyped, enrollmentProofMatches, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
 import { recoveryErrorMessage } from '../lib/recovery/errors'
 
 type CredentialRecord={credential:PublicCredential;signature:Hex}
@@ -34,6 +34,10 @@ export default function RecoveryPanel() {
   const [relay,setRelay]=useState<RelayRecord|null>(null),[attempt,setAttempt]=useState<PendingOperation|null>(null),[confirmed,setConfirmed]=useState<Hash|null>(null)
   const [rotated,setRotated]=useState(false),[readiness,setReadiness]=useState(false)
   const [thirdProof,setThirdProof]=useState<GuardianApproval|null>(null)
+  const preview=state && backup && bank && isAddress(third)?enrollmentPreview(state,backup.credential.signer,bank,address(third)):null
+  const verifiedThird=!!preview && !!thirdProof && enrollmentProofMatches(preview,thirdProof)
+  const currentEnrollmentHash=useRef<Hex|null>(null)
+  currentEnrollmentHash.current=preview?hashTypedData(enrollmentTyped(preview)):null
   const locked=useRef(false)
   useEffect(()=>{try {setAttempt(loadRecoveryAttempt())} catch {setError('Saved recovery attempt cannot be read. Preserve browser data; do not retry.')}},[])
   const cleanError=(e:unknown)=>recoveryErrorMessage(diagnose(e,'prepare','no').message)
@@ -66,7 +70,7 @@ export default function RecoveryPanel() {
     return s
   }
   async function find() {
-    setReadiness(false);setRotated(false);setIntent(null);setApprovals([]);setBackup(null);setReplacement(null);setRelay(null);setConfirmed(null)
+    setReadiness(false);setRotated(false);setIntent(null);setApprovals([]);setBackup(null);setReplacement(null);setRelay(null);setConfirmed(null);setThirdProof(null)
     const s=await refresh(address(safeInput.trim()))
     const draft=JSON.parse(localStorage.getItem(draftKey) || 'null')
     if (draft?.safe?.toLowerCase()===s.safe.toLowerCase()) {
@@ -117,9 +121,9 @@ export default function RecoveryPanel() {
   }
   async function install() {
     if (!state || !backup || !bank)return
+    if(!verifiedThird || !thirdProof)throw new Error('RECOVERY_THIRD_PARTY_POSSESSION_NOT_PROVEN')
     await verifyCredentialBinding(publicClient,backup.credential)
     const thirdAddress=address(third)
-    if(!thirdProof)throw new Error('RECOVERY_THIRD_PARTY_POSSESSION_NOT_PROVEN')
     await verifyEnrollmentProof(publicClient,enrollmentPreview(state,backup.credential.signer,bank,thirdAddress),thirdProof)
     if (state.enabled || state.guardians.length!==0 || state.threshold!==0n)throw new Error('RECOVERY_SETUP_REQUIRES_EMPTY_MODULE_STATE')
     if ([backup.credential.signer,bank,thirdAddress].some(g=>state.owners.some(o=>o.toLowerCase()===g.toLowerCase())))throw new Error('RECOVERY_GUARDIAN_IS_SPENDING_OWNER')
@@ -127,6 +131,18 @@ export default function RecoveryPanel() {
     const current=await recoveryState(publicClient,state.safe)
     if (!current.protected || ![backup.credential.signer,bank,thirdAddress].every(a=>current.guardians.some(g=>g.toLowerCase()===a.toLowerCase())))throw new Error('RECOVERY_ENROLLMENT_UNCONFIRMED')
     await publish(backup)
+  }
+  async function importEnrollment(file:File) {
+    setThirdProof(null)
+    setStatus('Verifying independent guardian enrollment proof. No signing or sending.')
+    if(!preview)throw new Error('RECOVERY_ENROLLMENT_INPUTS_REQUIRED')
+    if(file.size>20000)throw new Error('RECOVERY_APPROVAL_FILE_INVALID')
+    let value:unknown
+    try{value=JSON.parse(await file.text())}catch{throw new Error('RECOVERY_APPROVAL_FILE_INVALID')}
+    const proof=await verifyEnrollmentProof(publicClient,preview,value)
+    if(currentEnrollmentHash.current!==proof.intentHash)throw new Error('RECOVERY_ENROLLMENT_CHANGED')
+    setThirdProof(proof)
+    setStatus('Independent guardian verified. Enrollment proof validated; protection has not been activated.')
   }
   async function prepareIntent() {
     if (!state || !replacement)return
@@ -219,8 +235,9 @@ export default function RecoveryPanel() {
         {!state.protected && <><p>Demo institutional guardian: <code>{bank || 'Unavailable'}</code></p><label>Independent guardian address<input value={third} onChange={e=>{setThird(e.target.value);setThirdProof(null)}}/></label>
           <button disabled={busy || !backup || !bank || !isAddress(third)} onClick={()=>{if(backup && bank)downloadPublicJson(enrollmentPreview(state,backup.credential.signer,bank,address(third)),'continuity-enrollment-request.json')}}>Download independent guardian enrollment request</button>
           <p>The independent guardian opens <a href="/guardian" target="_blank" rel="noreferrer">the approval page</a> in their own wallet browser and returns a signed public approval file.</p>
-          <label>Import guardian enrollment proof<input type="file" accept=".json,application/json" disabled={busy || !backup || !bank} onChange={e=>{const file=e.target.files?.[0];if(file)void run(async()=>{if(!backup || !bank || file.size>20000)throw new Error('RECOVERY_APPROVAL_FILE_INVALID');const proof=JSON.parse(await file.text());await verifyEnrollmentProof(publicClient,enrollmentPreview(state,backup.credential.signer,bank,address(third)),proof);setThirdProof(proof)})}}/></label>
-          <button disabled={busy || !backup || !bank || !thirdProof || !isAddress(third)} onClick={()=>run(install)}>Simulate and sign atomic protection setup</button></>}
+          <label>Import guardian enrollment proof<input type="file" accept=".json,application/json" disabled={busy || !preview} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void run(()=>importEnrollment(file))}}/></label>
+          <p role="status" aria-label="Independent guardian enrollment verification">{verifiedThird && thirdProof?<>Independent guardian verified: <code>{thirdProof.signer}</code>. Enrollment approval only; protection has not been activated.</>:'Independent guardian enrollment proof has not been verified.'}</p>
+          <button disabled={busy || !verifiedThird} onClick={()=>run(install)}>Simulate and sign atomic protection setup</button></>}
         {state.protected && backup && <button disabled={busy} onClick={()=>run(repair)}>Sign replacement of backup guardian</button>}
         {state.protected && backup && !savedBackup && state.guardians.some(g=>g.toLowerCase()===backup.credential.signer.toLowerCase()) &&
           <button disabled={busy} onClick={()=>run(()=>publish(backup))}>Register public backup metadata</button>}

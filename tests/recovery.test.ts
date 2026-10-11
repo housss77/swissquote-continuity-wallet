@@ -8,8 +8,9 @@ import { intentHash, parseIntent } from '../lib/recovery/signatures'
 import { batchIntentValidator, enrollmentCalls } from '../lib/recovery/enrollment'
 import { validateCredential, verifyFreshCredential } from '../lib/recovery/passkey'
 import { recoveryReceiptIntent } from '../lib/recovery/evidence'
-import { enrollmentPreview, enrollmentTyped, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
-import { hashTypedData } from 'viem'
+import { enrollmentPreview, enrollmentTyped, enrollmentProofMatches, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
+import { hashTypedData, verifyTypedData } from 'viem'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { recoveryErrorMessage } from '../lib/recovery/errors'
 const a=getAddress('0x1111111111111111111111111111111111111111'),b=getAddress('0x2222222222222222222222222222222222222222'),c=getAddress('0x3333333333333333333333333333333333333333'),d=getAddress('0x4444444444444444444444444444444444444444')
 const intent={chainId:11155111 as const,module:a,safe:b,newOwner:c,newThreshold:'1' as const,nonce:'3',moduleVersion:'0.2.0' as const}
@@ -96,4 +97,28 @@ test('third-party enrollment proof is bound to the complete configuration and ca
   await assert.rejects(()=>verifyEnrollmentProof(client,{...preview,delay:259200},proof),/POSSESSION/)
   await assert.rejects(()=>verifyEnrollmentProof(client,preview,{...proof,signer:d}),/POSSESSION/)
   assert.notEqual(proof.intentHash,intentHash(intent))
+})
+
+test('real enrollment signatures bind every configuration field and malformed imports fail closed',async()=>{
+  // Ephemeral local test identity only; no real guardian key, network or storage.
+  const guardian=privateKeyToAccount(generatePrivateKey())
+  const preview=enrollmentPreview({safe:b,module:a,delay:180} as never,c,d,guardian.address)
+  const typed=enrollmentTyped(preview)
+  const proof={signer:guardian.address,intentHash:hashTypedData(typed),signature:await guardian.signTypedData(typed)}
+  const client={verifyTypedData:async(v:Parameters<typeof verifyTypedData>[0])=>{
+    // The public-client verifier returns false for invalid crypto signatures;
+    // the local-only utility used by this test throws on malformed r/s values.
+    try{return await verifyTypedData(v)}catch{return false}
+  }} as unknown as PublicClient
+  assert.deepEqual(await verifyEnrollmentProof(client,preview,proof),proof)
+  for(const changed of [{...preview,safe:d},{...preview,module:b},{...preview,backup:b},{...preview,bank:c},{...preview,third:a},
+    {...preview,delay:259200},{...preview,threshold:1},{...preview,chainId:1}]){
+    assert.equal(enrollmentProofMatches(changed as never,proof),false)
+    await assert.rejects(()=>verifyEnrollmentProof(client,changed as never,proof),/POSSESSION/)
+  }
+  for(const invalid of [null,[],preview,{...proof,extra:true},{...proof,signature:'0x0'},{...proof,signature:'not hex'},
+    {...proof,signature:`0x${'00'.repeat(9000)}`},{...proof,intentHash:'0x00'},{...proof,signer:a}]){
+    await assert.rejects(()=>verifyEnrollmentProof(client,preview,invalid),/POSSESSION/)
+  }
+  await assert.rejects(()=>verifyEnrollmentProof(client,preview,{...proof,signature:`0x${'00'.repeat(65)}`}),/POSSESSION/)
 })

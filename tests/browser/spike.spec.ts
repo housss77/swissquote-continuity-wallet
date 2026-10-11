@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { decodeFunctionData, encodeFunctionResult, domainSeparator, getAddress, type Address } from 'viem'
+import { decodeFunctionData, encodeFunctionResult, domainSeparator, getAddress, hashTypedData, type Address } from 'viem'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { expectedModuleCode, recoveryAbi, safeAbi, factoryAbi } from '../../lib/recovery/contracts'
 import { intentHash } from '../../lib/recovery/signatures'
+import { enrollmentTyped, type EnrollmentPreview } from '../../lib/recovery/guardian-proof'
 
 test('replacement refresh preserves the new signer and guardian file loading invalidates stale previews',async({page})=>{
   // Synthetic public fixtures only. No signing, broadcasting or chain-success
@@ -216,6 +218,75 @@ test('backup deployment explains missing operator and server rejection without s
   expect(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))).toBe(storageBefore)
   await expect(page.getByText(signer,{exact:true})).toBeVisible()
   await expect(page.getByText('Verified Sepolia transaction:',{exact:false})).toHaveCount(0)
+})
+
+test('enrollment import shows the verified signer and blocks malformed, stale and failed proofs without signing or sending',async({page})=>{
+  const safe='0x1111111111111111111111111111111111111111',owner='0x2222222222222222222222222222222222222222',signer='0x3333333333333333333333333333333333333333',bank='0x4444444444444444444444444444444444444444'
+  const guardian=privateKeyToAccount(generatePrivateKey()) // Ephemeral test identity, never persisted.
+  const backup={credential:{role:'customer_backup',rpId:'localhost',signer,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${'11'.repeat(32)}`,y:`0x${'22'.repeat(32)}`}}},signature:'0x11'}
+  await page.addInitScript(({safe,backup})=>{
+    localStorage.setItem('continuity-recovery-public-draft-v1',JSON.stringify({safe,backup}))
+    Object.defineProperty(navigator.credentials,'get',{value:async()=>{throw Error('TEST_MUST_NOT_SIGN')}})
+    Object.defineProperty(navigator.credentials,'create',{value:async()=>{throw Error('TEST_MUST_NOT_CREATE')}})
+  },{safe,backup})
+  const abi=[...safeAbi,...recoveryAbi,...factoryAbi]
+  let posts=0,broadcasts=0,holdSignature:Promise<void>|null=null
+  await page.route('**/*',async route=>{
+    const req=route.request(),url=new URL(req.url())
+    if(url.hostname==='localhost'){
+      if(url.pathname!=='/api/recovery')return route.continue()
+      if(req.method()==='POST'){posts++;throw Error('IMPORT_MUST_NOT_POST')}
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({bank,backup:null,replacement:null,transactions:[]})})
+    }
+    const body=req.postDataJSON();let result:unknown
+    if(body.method==='eth_chainId')result='0xaa36a7'
+    else if(body.method==='eth_getCode')result=expectedModuleCode(180)
+    else if(body.method==='eth_getBlockByNumber')result={number:'0x1',timestamp:'0x100',hash:`0x${'11'.repeat(32)}`,transactions:[]}
+    else if(body.method==='eth_call' && !body.params[0].to){
+      if(holdSignature)await holdSignature
+      // A failed deployless read makes viem fall back to real local ECDSA
+      // recovery. No blockchain success or successful signature is mocked.
+      result='0x00'
+    }else if(body.method==='eth_call'){
+      const call=decodeFunctionData({abi,data:body.params[0].data})
+      const values:Record<string,string|bigint|boolean|unknown[]>={VERSION:body.params[0].to.toLowerCase()===safe?'1.4.1':'0.2.0',getOwners:[owner],getThreshold:1n,isModuleEnabled:false,getGuardians:[],threshold:0n,nonce:0n,getRecoveryRequest:[0n,0n,0n,0n,[]],getSigner:signer,domainSeparator:domainSeparator({domain:{name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:body.params[0].to as Address}})}
+      result=encodeFunctionResult({abi,functionName:call.functionName,result:values[call.functionName]})
+    }else{broadcasts++;throw Error('UNEXPECTED_IMPORT_RPC')}
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
+  })
+  await page.goto('/recovery')
+  const storedBefore=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))
+  await page.getByLabel('Safe address',{exact:true}).fill(safe);await page.getByRole('button',{name:'Find wallet',exact:true}).click()
+  const third=page.getByLabel('Independent guardian address',{exact:true}),upload=page.getByLabel('Import guardian enrollment proof',{exact:true})
+  const setup=page.getByRole('button',{name:'Simulate and sign atomic protection setup',exact:true}),status=page.getByRole('status',{name:'Independent guardian enrollment verification'}),alert=page.getByRole('main').getByRole('alert')
+  await expect(upload).toBeDisabled();await expect(setup).toBeDisabled()
+  await third.fill(guardian.address)
+  const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Download independent guardian enrollment request',exact:true}).click()])
+  const stream=await download.createReadStream(),chunks:Buffer[]=[];for await(const chunk of stream)chunks.push(chunk)
+  const preview=JSON.parse(Buffer.concat(chunks).toString()) as EnrollmentPreview,typed=enrollmentTyped(preview)
+  const proof={signer:guardian.address,intentHash:hashTypedData(typed),signature:await guardian.signTypedData(typed)}
+  const file=(value:unknown)=>({name:'approval.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(value))})
+  await upload.setInputFiles(file(proof))
+  await expect(status).toContainText(`Independent guardian verified: ${guardian.address}`)
+  await expect(status).toContainText('protection has not been activated');await expect(setup).toBeEnabled();await expect(alert).toHaveCount(0)
+  await upload.setInputFiles({name:'approval.json',mimeType:'application/json',buffer:Buffer.from('{invalid')})
+  await expect(alert).toContainText('RECOVERY_APPROVAL_FILE_INVALID');await expect(status).toContainText('has not been verified');await expect(setup).toBeDisabled()
+  // Re-selecting the same downloaded file must produce a visible result again.
+  await upload.setInputFiles(file(proof));await expect(setup).toBeEnabled()
+  await upload.setInputFiles(file({...proof,signature:`0x${'00'.repeat(65)}`}))
+  await expect(alert).toContainText('RECOVERY_THIRD_PARTY_POSSESSION_NOT_PROVEN');await expect(setup).toBeDisabled()
+  await upload.setInputFiles(file(proof));await expect(setup).toBeEnabled()
+  await third.fill(bank);await expect(status).toContainText('has not been verified');await expect(setup).toBeDisabled()
+  await upload.setInputFiles(file(proof));await expect(alert).toContainText('RECOVERY_THIRD_PARTY_POSSESSION_NOT_PROVEN')
+  await third.fill(guardian.address)
+  let release=()=>{}
+  holdSignature=new Promise<void>(resolve=>{release=resolve})
+  const pending=page.waitForRequest(req=>{try{const body=req.postDataJSON();return body?.method==='eth_call' && !body.params[0].to}catch{return false}})
+  await upload.setInputFiles(file(proof));await pending
+  try{await third.fill(bank)}finally{release();holdSignature=null}
+  await expect(alert).toContainText('RECOVERY_ENROLLMENT_CHANGED');await expect(setup).toBeDisabled()
+  expect(posts).toBe(0);expect(broadcasts).toBe(0)
+  expect(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))).toBe(storedBefore)
 })
 test('anonymous demo bank approval is rejected before any signing or RPC action',async ({page})=>{
   await page.goto('/recovery')
