@@ -8,7 +8,7 @@ test('live Sepolia reads initialize a virtual-passkey Safe without broadcasting'
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
     options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
   })
-  await page.goto('/')
+  await page.goto('/lab')
   await page.getByRole('button', { name: 'Create passkey and initialize Safe' }).click()
   const accountHeading = page.getByRole('heading', { name: '2. Safe account', exact: true })
   const error = page.getByRole('main').getByRole('alert')

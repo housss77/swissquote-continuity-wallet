@@ -12,6 +12,7 @@ import type { ConfirmedProof } from '../lib/proof'
 import { diagnosticMintTransaction, mintTransaction, transferTransaction } from '../lib/transactions'
 import { diagnoseSponsorship, prepareSponsoredTransaction, type SponsorshipReport } from '../lib/sponsorship'
 import { assertOperationBudget } from '../lib/gas'
+import { assertCustomerSpendingAllowed } from '../lib/product'
 import { archivePending, checkNetworks, confirmOperation, initializeWallet, loadPending, operationHash, publicClient, savePending, sponsorshipReads, submitOperation, walletSnapshot, type PendingOperation, type WalletSnapshot } from '../lib/wallet'
 
 const lifecycleText = {
@@ -162,6 +163,7 @@ export default function WalletSpike() {
     setIncludedHash(null)
     let stage: Stage = 'prepare'
     try {
+      assertCustomerSpendingAllowed(wallet.address)
       providerConfig(true) // Missing policy blocks preparation before a passkey prompt.
       await checkNetworks()
       const balance = await publicClient.getBalance({ address: wallet.address })

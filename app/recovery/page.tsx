@@ -1,2 +1,2 @@
-import RecoveryPanel from '../../components/RecoveryPanel'
-export default function RecoveryPage() {return <RecoveryPanel/>}
+import Recovery from '../../components/product/Recovery'
+export default function RecoveryPage() {return <Recovery/>}

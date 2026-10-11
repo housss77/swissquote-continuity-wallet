@@ -20,6 +20,7 @@ import type { GuardianApproval, PublicCredential, RecoveryIntent, RecoveryState 
 import type { PendingOperation } from '../lib/operations'
 import { downloadPublicJson, enrollmentPreview, enrollmentTyped, enrollmentProofMatches, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
 import { recoveryErrorMessage } from '../lib/recovery/errors'
+import { assertConfigurationWritable } from '../lib/product'
 
 type CredentialRecord={credential:PublicCredential;signature:Hex}
 type RelayRecord={hash:Hash;state:string;action:string}
@@ -82,6 +83,7 @@ export default function RecoveryPanel() {
   async function create(role:'customer_backup'|'replacement') {
     if (!state) return
     assertDisposableSafe(state.safe)
+    assertConfigurationWritable(state.safe)
     const credential=await createRecoveryCredential(publicClient,role,loadPasskey() || undefined)
     await verifyFreshCredential(publicClient,state.safe,state.owners,state.guardians,credential)
     const record={credential,signature:await signDigest(credential,metadataDigest(state.safe,state.module,credential))}
@@ -104,6 +106,7 @@ export default function RecoveryPanel() {
   async function ownerCall(calls:ReturnType<typeof enrollmentCalls>,description:string) {
     if (!state)return
     assertDisposableSafe(state.safe)
+    assertConfigurationWritable(state.safe)
     const pk=rotated && replacement?replacement.credential.passkey:loadPasskey()
     if (!pk)throw new Error('RECOVERY_AUTHORIZED_SPENDING_PASSKEY_UNAVAILABLE')
     await authenticatePasskey(pk)

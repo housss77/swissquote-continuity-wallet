@@ -1,5 +1,5 @@
-import WalletSpike from '../components/WalletSpike'
+import Wallet from '../components/product/Wallet'
 
 export default function Page() {
-  return <WalletSpike />
+  return <Wallet />
 }

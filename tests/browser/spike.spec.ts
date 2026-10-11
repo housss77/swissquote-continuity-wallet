@@ -44,7 +44,7 @@ test('replacement refresh preserves the new signer and guardian file loading inv
     } else {if(body.method==='eth_sendUserOperation' || body.method==='eth_sendRawTransaction')sends++;if(body.method.includes('sign'))signs++;throw new Error(`Unexpected preparation RPC ${body.method}`)}
     await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
   })
-  await page.goto('/recovery');await page.getByLabel('Safe address',{exact:true}).fill(safe)
+  await page.goto('/lab/recovery');await page.getByLabel('Safe address',{exact:true}).fill(safe)
   await page.getByRole('button',{name:'Find wallet',exact:true}).click()
   const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'Prepare replacement access',exact:true})})
   await expect(panel.getByText(newOwner,{exact:true})).toBeVisible()
@@ -79,7 +79,7 @@ test('replacement refresh preserves the new signer and guardian file loading inv
 })
 
 test('recovery opens from a clean browser without an original wallet session',async ({page})=>{
-  await page.goto('/recovery')
+  await page.goto('/lab/recovery')
   await expect(page.getByRole('heading',{name:'Recover your Continuity Wallet'})).toBeVisible()
   await expect(page.getByRole('button',{name:'Find wallet',exact:true})).toBeDisabled()
   expect(await page.evaluate(()=>localStorage.length)).toBe(0)
@@ -192,7 +192,7 @@ test('backup deployment explains missing operator and server rejection without s
     } else {broadcasts++;throw new Error('Unexpected RPC in rejected provisioning test')}
     await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
   })
-  await page.goto('/recovery');const storageBefore=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))
+  await page.goto('/lab/recovery');const storageBefore=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))
   await page.getByLabel('Safe address',{exact:true}).fill(safe)
   await page.getByRole('button',{name:'Find wallet',exact:true}).click()
   const deploy=page.getByRole('button',{name:'Deploy backup identity',exact:true}),alert=page.getByRole('main').getByRole('alert')
@@ -254,7 +254,7 @@ test('enrollment import shows the verified signer and blocks malformed, stale an
     }else{broadcasts++;throw Error('UNEXPECTED_IMPORT_RPC')}
     await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
   })
-  await page.goto('/recovery')
+  await page.goto('/lab/recovery')
   const storedBefore=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))
   await page.getByLabel('Safe address',{exact:true}).fill(safe);await page.getByRole('button',{name:'Find wallet',exact:true}).click()
   const third=page.getByLabel('Independent guardian address',{exact:true}),upload=page.getByLabel('Import guardian enrollment proof',{exact:true})
@@ -289,7 +289,7 @@ test('enrollment import shows the verified signer and blocks malformed, stale an
   expect(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))).toBe(storedBefore)
 })
 test('anonymous demo bank approval is rejected before any signing or RPC action',async ({page})=>{
-  await page.goto('/recovery')
+  await page.goto('/lab/recovery')
   const reply=await page.evaluate(async()=>{
     const response=await fetch('/api/recovery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'bank_approve',verifiedDemoIdentity:true})})
     return {status:response.status,body:await response.json()}
@@ -300,14 +300,14 @@ test('anonymous demo bank approval is rejected before any signing or RPC action'
 
 test('recovery preserves original RPC submission errors instead of claiming enrollment success',async({page})=>{
   await page.addInitScript(()=>localStorage.setItem('continuity-recovery-operations-v1',JSON.stringify({kind:'recovery',description:'Rejected enrollment fixture',safeAddress:'0x1111111111111111111111111111111111111111',userOperationHash:`0x${'11'.repeat(32)}`,state:'rejected',acceptance:'no',submissionError:{stage:'submit',httpStatus:200,rpcCode:-32500,message:'AA23 verification reverted',acceptance:'no'}})))
-  await page.goto('/recovery')
+  await page.goto('/lab/recovery')
   await expect(page.getByText('AA23 verification reverted',{exact:true})).toBeVisible()
   await expect(page.getByText('-32500',{exact:true})).toBeVisible()
   await expect(page.getByText('Owner rotation confirmed',{exact:false})).toHaveCount(0)
 })
 
 test('startup shows Sepolia and never shows a fabricated success', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/lab')
   await expect(page.getByRole('heading', { name: 'Swissquote Continuity Wallet', exact: true })).toBeVisible()
   await expect(page.getByText('Ethereum Sepolia only')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create passkey and initialize Safe' })).toBeEnabled()
@@ -316,7 +316,7 @@ test('startup shows Sepolia and never shows a fabricated success', async ({ page
 
 test('unsupported WebAuthn blocks creation with actionable guidance', async ({ page }) => {
   await page.addInitScript(() => { Object.defineProperty(window, 'PublicKeyCredential', { value: undefined }) })
-  await page.goto('/')
+  await page.goto('/lab')
   await expect(page.getByRole('main').getByRole('alert')).toContainText('WebAuthn ES256 passkeys are unavailable')
   await expect(page.getByRole('button', { name: 'Create passkey and initialize Safe' })).toBeDisabled()
 })
@@ -327,7 +327,7 @@ test('a rejected browser prompt does not create account metadata or claim succes
       value: async () => { throw new DOMException('Cancelled', 'NotAllowedError') },
     })
   })
-  await page.goto('/')
+  await page.goto('/lab')
   await page.getByRole('button', { name: 'Create passkey and initialize Safe' }).click()
   await expect(page.getByRole('main').getByRole('alert')).toContainText('cancelled, rejected, or timed out')
   expect(await page.evaluate(() => localStorage.length)).toBe(0)
@@ -346,7 +346,7 @@ test('virtual authenticator stores public metadata even when the network fails',
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
     options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
   })
-  await page.goto('/')
+  await page.goto('/lab')
   await page.getByRole('button', { name: 'Create passkey and initialize Safe' }).click()
   await expect(page.getByRole('main').getByRole('alert')).toBeVisible({ timeout: 30_000 })
   const keys = await page.evaluate(() => {
@@ -366,7 +366,7 @@ test('legacy pending metadata is labelled unknown with no submission acknowledge
       userOperationHash: `0x${'11'.repeat(32)}`, safeAddress: '0x1111111111111111111111111111111111111111', kind: 'mint', description: 'Legacy unit fixture',
     }))
   })
-  await page.goto('/')
+  await page.goto('/lab')
   await expect(page.getByText('Unknown/unresolved; acceptance or confirmation is uncertain.')).toBeVisible()
   await expect(page.getByText('No submission acknowledgement recorded.', { exact: false })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Confirmed onchain' })).toHaveCount(0)
@@ -388,7 +388,7 @@ test('read-only checks preserve submission diagnostics and never broadcast', asy
     const result = body.method === 'eth_chainId' ? '0xaa36a7' : body.method === 'pimlico_getUserOperationStatus' ? { status: 'not_found', transactionHash: null } : null
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jsonrpc: '2.0', id: body.id, result }) })
   })
-  await page.goto('/')
+  await page.goto('/lab')
   await page.getByRole('button', { name: 'Check pending operation' }).click()
   await expect(page.getByText('Latest read-only checks:', { exact: false })).toBeVisible()
   await expect(page.getByText('AA24 signature error', { exact: true })).toBeVisible()
@@ -417,7 +417,7 @@ test('preparation diagnostic failure cannot prompt a passkey, broadcast, or chan
     if (body?.method === 'eth_sendUserOperation') broadcasts++
     await route.fulfill({ status: 503, body: 'offline preparation fixture' })
   })
-  await page.goto('/')
+  await page.goto('/lab')
   const storageBefore = await page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()))
   await page.getByRole('button', { name: 'Diagnose NFT sponsorship (no signing or sending)' }).click()
   const report = page.getByRole('region', { name: 'Preparation-only sponsorship diagnostic' }).locator('pre')

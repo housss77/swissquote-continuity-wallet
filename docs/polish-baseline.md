@@ -28,3 +28,15 @@ funding and a human Windows Hello approval. No public-chain transaction was sent
 
 The original Safe and human-device recovery Safe are protected from configuration
 changes. Their existing passkeys, approvals, registry and history are preserved.
+
+## Customer interface checkpoint
+
+Phase 1 checks: 65 unit tests, 4 server tests and 20 isolated browser tests passed;
+TypeScript and production build passed. Existing technical tests now target
+`/lab` and `/lab/recovery`; their security assertions remain intact. The optional
+live-read suite remains separate from ordinary browser regression.
+
+First rendered design review inspected actual public-wallet desktop and 390px
+mobile screenshots. Raw diagnostics remain in the lab. New write restrictions
+protect both acceptance wallets' configuration; institutional authentication is
+unchanged. USDC submission and presentation mode are subsequent checkpoints.

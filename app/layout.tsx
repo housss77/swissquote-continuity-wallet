@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Swissquote Continuity Wallet — Sepolia spike',
-  description: 'Safe passkey and sponsored ERC-4337 technical viability spike.',
+  title: 'Continuity — Your wallet, your control',
+  description: 'An independent Swissquote-inspired hackathon concept: passkey self-custody, sponsored testnet transactions and verified social recovery.',
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {

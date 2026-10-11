@@ -1,4 +1,5 @@
 import 'server-only'
+import { assertConfigurationWritable } from '../product'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { timingSafeEqual } from 'node:crypto'
@@ -22,6 +23,7 @@ export const bankAddress=()=>secretAccount(process.env.RECOVERY_INSTITUTIONAL_PR
 export function allowedSafe(value:string):Address {
   const safe=address(value)
   assertDisposableSafe(safe)
+  assertConfigurationWritable(safe)
   let allow:string[]
   try {
     allow=(process.env.RECOVERY_ALLOWED_SAFE_ADDRESSES || '').split(',').filter(Boolean).map(a=>address(a.trim()).toLowerCase())

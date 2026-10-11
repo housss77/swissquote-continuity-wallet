@@ -8,6 +8,7 @@ import { verifyReceipt } from './proof'
 import { diagnose, scrubMessage, type Diagnostic } from './diagnostics'
 import { broadcastOperation, inspectOperation, isHash, pollOperation, rpcRequest, type BundlerReceipt, type PendingOperation } from './operations'
 import { extractPaymaster, type SponsorshipReads } from './sponsorship'
+import { assertCustomerSpendingAllowed } from './product'
 export type { PendingOperation } from './operations'
 
 export const publicClient = createPublicClient({
@@ -162,6 +163,7 @@ export function archivePending(pending: PendingOperation) {
 }
 
 export async function submitOperation(signed: Awaited<ReturnType<Safe4337Pack['signSafeOperation']>>, pending: PendingOperation, update: (value: PendingOperation) => void) {
+  assertCustomerSpendingAllowed(pending.safeAddress)
   const { bundlerUrl } = providerConfig(true)
   const operation = signed.toUserOperation()
   if (!pending.paymasterAddress || extractPaymaster(operation.paymasterAndData).toLowerCase() !== pending.paymasterAddress.toLowerCase()

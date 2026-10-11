@@ -2,7 +2,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/browser',
-  testMatch: '**/spike.spec.ts',
+  testMatch: '**/*.spec.ts',
+  testIgnore: '**/live-read.spec.ts',
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
