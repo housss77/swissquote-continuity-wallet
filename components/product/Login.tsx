@@ -7,6 +7,7 @@ import {signIn,finishWallet,customerSession,signOut} from '../../lib/auth-client
 import {createdPasskey} from '../../lib/customer-credentials'
 import {loadPasskey} from '../../lib/passkeys'
 import {friendlyError} from '../../lib/errors'
+import {Icon} from './Icon'
 export default function Login(){
   const router=useRouter(),active=useRef(false),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('')
   async function connect(create=false){if(active.current)return;active.current=true;setBusy(true);setError('');setMessage('Waiting for your device…')
@@ -17,10 +18,10 @@ export default function Login(){
   return <Shell><div className="access-layout">
     <PageHeading eyebrow="CONTINUITY WALLET" title="Welcome back to your wallet.">Sign in with your passkey. Your device stays in control.</PageHeading>
     <section className="access-panel">
-      <span className="access-symbol" aria-hidden="true">C</span><h2>Face ID. Touch ID. Your passkey.</h2>
+      <span className="access-symbol" aria-hidden="true"><Icon name="face" size={30}/></span><h2>Face ID. Touch ID. Your passkey.</h2>
       <p className="muted">No email password or seed phrase. Sign-in restores your wallet; sending still needs a separate approval.</p>
       {error && <p className="alert" role="alert">{error}</p>}
-      <button className="button-primary access-primary" disabled={busy} onClick={()=>void connect()}>{busy?'Waiting for your device…':'Continue with passkey'}</button>
+      <button className="button-primary access-primary" disabled={busy} onClick={()=>void connect()}><Icon name="key" size={18}/>{busy?'Waiting for your device…':'Continue with passkey'}</button>
       <button className="access-secondary" disabled={busy} onClick={()=>void connect(true)}>Create wallet</button>
       {message && <p role="status" className="muted">{message}</p>}
       <Link href="/recovery">Lost access? Recover your wallet</Link>
