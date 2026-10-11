@@ -1,25 +1,32 @@
 import { test, expect } from '@playwright/test'
 import { decodeFunctionData, encodeFunctionResult, domainSeparator, type Address } from 'viem'
 import { expectedModuleCode, recoveryAbi, safeAbi, factoryAbi } from '../../lib/recovery/contracts'
+import { intentHash } from '../../lib/recovery/signatures'
 
-test('receipt refresh preserves a new replacement instead of restoring the previous spending owner',async({page})=>{
+test('replacement refresh preserves the new signer and guardian file loading invalidates stale previews',async({page})=>{
   // Synthetic public fixtures only. No signing, broadcasting or chain-success
   // claim: reproduce the metadata refresh between deployment and preparation.
   const safe='0x1111111111111111111111111111111111111111',oldOwner='0x2222222222222222222222222222222222222222',newOwner='0x3333333333333333333333333333333333333333'
   const guardians=['0x4444444444444444444444444444444444444444','0x5555555555555555555555555555555555555555','0x6666666666666666666666666666666666666666']
   const record=(signer:string,x:string)=>({credential:{role:'replacement',rpId:'localhost',signer,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${x.repeat(32)}`,y:`0x${'22'.repeat(32)}`}}},signature:'0x11'})
   const fresh=record(newOwner,'11'),previous=record(oldOwner,'33')
-  await page.addInitScript(({safe,fresh})=>localStorage.setItem('continuity-recovery-public-draft-v1',JSON.stringify({safe,backup:null,replacement:fresh})),{safe,fresh})
+  const backup={...record(guardians[0],'44'),credential:{...record(guardians[0],'44').credential,role:'customer_backup'}}
+  await page.addInitScript(({safe,fresh,backup})=>localStorage.setItem('continuity-recovery-public-draft-v1',JSON.stringify({safe,backup,replacement:fresh})),{safe,fresh,backup})
   let sends=0,signs=0
+  let heldChainRead:Promise<void>|null=null
   await page.addInitScript(()=>{Object.defineProperty(navigator.credentials,'get',{value:async()=>{throw new Error('TEST_MUST_NOT_SIGN')}})})
   const abi=[...safeAbi,...recoveryAbi,...factoryAbi]
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url())
     if(url.hostname==='localhost') {
-      if(url.pathname==='/api/recovery')return route.fulfill({contentType:'application/json',body:JSON.stringify({bank:guardians[1],backup:null,replacement:previous,transactions:[]})})
+      if(url.pathname==='/api/recovery') {
+        if(request.method()==='POST') {expect(request.postDataJSON().action).toBe('publish_metadata');return route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:'RECOVERY_INVALID_METADATA_PROOF'})})}
+        return route.fulfill({contentType:'application/json',body:JSON.stringify({bank:guardians[1],backup:null,replacement:previous,transactions:[]} )})
+      }
       return route.continue()
     }
     const body=request.postDataJSON()
+    if(body.method==='eth_chainId' && heldChainRead)await heldChainRead
     let result:unknown
     if(body.method==='eth_chainId')result='0xaa36a7'
     else if(body.method==='eth_getCode')result=expectedModuleCode(180)
@@ -29,7 +36,8 @@ test('receipt refresh preserves a new replacement instead of restoring the previ
       const values:Record<string,string|bigint|boolean|unknown[]>={VERSION:body.params[0].to.toLowerCase()===safe?'1.4.1':'0.2.0',getOwners:[oldOwner],getThreshold:1n,isModuleEnabled:true,getGuardians:guardians,threshold:2n,nonce:4n,
         getRecoveryRequest:[0n,0n,0n,0n,[]],
         domainSeparator:domainSeparator({domain:{name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:body.params[0].to as Address}}),
-        getSigner:call.args?.[0]===BigInt(fresh.credential.passkey.coordinates.x)?newOwner:oldOwner}
+        getSigner:call.args?.[0]===BigInt(fresh.credential.passkey.coordinates.x)?newOwner:call.args?.[0]===BigInt(backup.credential.passkey.coordinates.x)?guardians[0]:oldOwner}
+      if(name==='getRecoveryHash')values[name]=intentHash({chainId:11155111,moduleVersion:'0.2.0',module:body.params[0].to as Address,safe:call.args?.[0] as Address,newOwner:(call.args?.[1] as Address[])[0],newThreshold:'1',nonce:String(call.args?.[3])})
       result=encodeFunctionResult({abi,functionName:name,result:values[name]})
     } else {if(body.method==='eth_sendUserOperation' || body.method==='eth_sendRawTransaction')sends++;if(body.method.includes('sign'))signs++;throw new Error(`Unexpected preparation RPC ${body.method}`)}
     await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
@@ -38,6 +46,9 @@ test('receipt refresh preserves a new replacement instead of restoring the previ
   await page.getByRole('button',{name:'Find wallet',exact:true}).click()
   const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'Prepare replacement access',exact:true})})
   await expect(panel.getByText(newOwner,{exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Register public backup metadata',exact:true}).click()
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('RECOVERY_INVALID_METADATA_PROOF')
+  await expect(page.getByRole('status')).not.toContainText('public credential metadata verified')
   await page.getByRole('button',{name:'Refresh recovery state',exact:true}).click()
   await expect(page.getByRole('button',{name:'Refresh recovery state',exact:true})).toBeEnabled()
   await expect(panel.getByText(newOwner,{exact:true})).toBeVisible()
@@ -46,6 +57,23 @@ test('receipt refresh preserves a new replacement instead of restoring the previ
   await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0)
   expect(sends).toBe(0);expect(signs).toBe(0)
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('continuity-recovery-public-draft-v1')!).replacement.credential.signer)).toBe(newOwner)
+  const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Download request for independent guardian',exact:true}).click()])
+  const stream=await download.createReadStream(),chunks:Buffer[]=[]
+  for await(const chunk of stream)chunks.push(chunk)
+  const intent=JSON.parse(Buffer.concat(chunks).toString())
+  await page.goto('/guardian')
+  const upload=page.getByLabel('Public enrollment or recovery request',{exact:true})
+  await upload.setInputFiles({name:'first.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(intent))})
+  const approve=page.getByRole('button',{name:'Sign and download verified public approval',exact:true})
+  await expect(approve).toBeEnabled()
+  let releaseRead:()=>void=()=>{}
+  heldChainRead=new Promise(resolve=>{releaseRead=resolve})
+  const pendingRead=page.waitForRequest(request=>{try{return new URL(request.url()).hostname!=='localhost' && request.postDataJSON()?.method==='eth_chainId'}catch{return false}})
+  await upload.setInputFiles({name:'new-invalid.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({...intent,newOwner:guardians[0]}))})
+  await pendingRead
+  try {await expect(approve).toHaveCount(0)}finally{releaseRead();heldChainRead=null}
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('RECOVERY_STALE_OR_CHANGED_INTENT')
+  expect(sends).toBe(0);expect(signs).toBe(0)
 })
 
 test('recovery opens from a clean browser without an original wallet session',async ({page})=>{

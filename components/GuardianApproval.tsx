@@ -12,6 +12,7 @@ import { diagnose } from '../lib/diagnostics'
 export default function GuardianApproval() {
   const [request,setRequest]=useState<EnrollmentPreview|RecoveryIntent|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
   async function load(file:File) {
+    setBusy(true);setRequest(null);setError('')
     try {
       if(file.size>12000)throw new Error('RECOVERY_REQUEST_TOO_LARGE')
       const v=JSON.parse(await file.text())
@@ -22,7 +23,7 @@ export default function GuardianApproval() {
         setRequest(p)
       } else {const p=parseIntent(v);await validateIntent(publicClient,p);setRequest(p)}
       setError('')
-    } catch(e){setError(diagnose(e,'prepare','no').message);setRequest(null)}
+    } catch(e){setError(diagnose(e,'prepare','no').message);setRequest(null)} finally{setBusy(false)}
   }
   async function sign() {
     if(busy || !request)return

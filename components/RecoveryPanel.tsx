@@ -220,6 +220,8 @@ export default function RecoveryPanel() {
           <label>Import guardian enrollment proof<input type="file" accept=".json,application/json" disabled={busy || !backup || !bank} onChange={e=>{const file=e.target.files?.[0];if(file)void run(async()=>{if(!backup || !bank || file.size>20000)throw new Error('RECOVERY_APPROVAL_FILE_INVALID');const proof=JSON.parse(await file.text());await verifyEnrollmentProof(publicClient,enrollmentPreview(state,backup.credential.signer,bank,address(third)),proof);setThirdProof(proof)})}}/></label>
           <button disabled={busy || !backup || !bank || !thirdProof || !isAddress(third)} onClick={()=>run(install)}>Simulate and sign atomic protection setup</button></>}
         {state.protected && backup && <button disabled={busy} onClick={()=>run(repair)}>Sign replacement of backup guardian</button>}
+        {state.protected && backup && !savedBackup && state.guardians.some(g=>g.toLowerCase()===backup.credential.signer.toLowerCase()) &&
+          <button disabled={busy} onClick={()=>run(()=>publish(backup))}>Register public backup metadata</button>}
         {savedBackup && <button disabled={busy} onClick={()=>run(async()=>{const digest=metadataDigest(state.safe,state.module,savedBackup),signature=await signDigest(savedBackup,digest);
           if (await publicClient.readContract({address:savedBackup.signer,abi:erc1271Abi,functionName:'isValidSignature',args:[digest,signature]})!=='0x1626ba7e')throw new Error('RECOVERY_BACKUP_NOT_AVAILABLE');setReadiness(true)})}>Verify backup access</button>}
       </section>
