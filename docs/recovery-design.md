@@ -5,6 +5,12 @@ Step 1 is accepted: the original Safe completed a sponsored Sepolia NFT mint in
 Recovery testing uses disposable accounts only. The application blocks recovery
 writes to `0x6f7c9faba9B6039255f2301935D891ffE6065e8C`.
 
+All three recovery pairs have completed real Sepolia owner rotation and a new-passkey
+transaction on a disposable Safe, including B+C without any old customer credential.
+See [the public acceptance evidence and exact transaction hashes](recovery-evidence.md).
+These tests use virtual authenticators; human-device acceptance and real institutional
+controls remain outstanding. The accepted Safe has not had recovery installed.
+
 ## Contract compatibility and provenance
 
 We use Candide SocialRecoveryModule **0.2.0**, unchanged from fix commit
@@ -163,6 +169,10 @@ No fund transfer from the accepted Safe is needed or permitted.
    once with the current spending passkey; verify three guardians/threshold two.
 5. Preserve the completed sponsored enrollment attempt using the explicit control
    before another sponsored action. The separate history remains intact.
+   If enrollment is confirmed but its later metadata registration fails, refresh
+   the onchain state and use **Register public backup metadata**. This verifies
+   and registers the existing signed public proof without signing or submitting
+   the enrollment again. An invalid proof remains rejected.
 6. From a clean replacement browser find the Safe, create a new spending passkey,
    deploy its proxy with a valid metadata proof and prepare the canonical preview.
 7. Obtain two approvals for that same preview: A+B, A+C or B+C. For B+C use no
@@ -229,6 +239,27 @@ new disposable test is authorized. Setting `RECOVERY_KEEP_TEST_BROWSER=1` keeps 
 failed isolated test session available on localhost CDP port 9238 for diagnosis;
 it performs no retries. Type `stop` in that test terminal to close it. This test-only
 debug endpoint must never be used with a real customer profile or public hosting.
+
+The live harness uses a separate replacement authenticator context for A+C.
+[Chromium's virtual CTAP2 device defaults to three resident credentials](https://raw.githubusercontent.com/chromium/chromium/main/device/fido/virtual_ctap2_device.h);
+creating a fourth on the initial device fails with `NotAllowedError`. The backup
+device signs a public, module-verified approval file without exporting its key.
+Both customer contexts are closed before B+C; its fresh context starts with empty
+storage and has no original customer authenticator. A read-only old-signature
+validity proof is collected before device loss, never used to authorize recovery.
+After the rotation, that previously valid signature must be rejected onchain.
+
+Do not attach/detach a second CDP client during an active virtual-authenticator
+test. Chromium's [WebAuthn handler](https://raw.githubusercontent.com/chromium/chromium/main/content/browser/devtools/protocol/webauthn_handler.cc)
+can disable the frame's virtual environment on detachment. Retaining the browser
+does not guarantee retained virtual credential availability after debugging.
+These limitations belong to the test fixture, not a hardware passkey or the bank
+guardian. Failed public records remain preserved; no failed operation is resent.
+An acknowledged operation with a temporary confirmation error permits one
+read-only UI receipt check, which still requires independent successful chain proof.
+Approval file imports wait for each verified count before accepting another file.
+The independent approval page clears its previous request and blocks signing
+while a replacement file is being validated, preventing stale preview signing.
 
 ## Threat model and remaining issues
 

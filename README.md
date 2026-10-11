@@ -7,8 +7,11 @@ Step 1 was accepted with a verified real sponsored NFT mint:
 
 The `feat/recovery` implementation adds 2-of-3 social recovery using the unchanged
 Candide v0.2.0 module. See the [recovery design, setup, tests and threat model](docs/recovery-design.md).
-Recovery requires separate live acceptance evidence; local fork tests are not
-Sepolia transactions. The existing accepted Safe is blocked from recovery writes.
+All three guardian pairs completed real recovery and new-passkey transactions
+on a disposable Sepolia Safe; see the [verified recovery evidence](docs/recovery-evidence.md).
+The automated tests use virtual WebAuthn authenticators and simulated institutional
+controls; a human-device recovery demo remains to be performed. Local fork hashes
+are not Sepolia evidence. The existing accepted Safe is blocked from recovery writes.
 Earlier spike diagnostics below describe their original evidence and limitations.
 
 ## Basis and pinned stack
@@ -416,15 +419,15 @@ the real-authenticator or live-transaction acceptance criteria.
 | Criterion | Required evidence |
 | --- | --- |
 | A: starts | Local HTTP/browser smoke check with documented commands |
-| B: real passkey | Manual step 2; pending until the user performs it |
-| C: Safe address | Manual step 3, then deployed-code/explorer verification |
-| D: real sponsored UserOperation | Manual steps 6–9; pending until performed |
+| B: real passkey | User completed real browser creation, authentication and signing in Step 1 |
+| C: Safe address | Accepted Safe is deployed and explorer-verifiable |
+| D: real sponsored UserOperation | Step 1 transaction above has a successful sponsored EntryPoint event |
 | E: actual hash/link | Confirmed UI and independent verifier; no fabricated value |
 | F: builds | Successful `npm run build` |
 | G: Git/secrets | Status/diff, ignored local env, and source scan |
 
 Step 1 live success is recorded at the top of this README. Recovery evidence is
-tracked separately; never invent credentials, funds, browser interaction or successful
+recorded in [the separate recovery report](docs/recovery-evidence.md); never invent credentials, funds, browser interaction or successful
 receipts. Automated virtual authenticators do not satisfy real-human passkey acceptance.
 
 ## Git hygiene

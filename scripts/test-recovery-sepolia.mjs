@@ -18,6 +18,7 @@ process.loadEnvFile('.env.local')
 const forbidden='0x6f7c9faba9b6039255f2301935d891ffe6065e8c'
 const runLabel=process.argv[3]
 if(runLabel && !/^[a-z0-9-]{1,40}$/.test(runLabel))throw new Error('Invalid public test run label')
+if(process.argv[4])throw new Error('Unsupported live test option')
 const evidenceFile=runLabel?`.recovery-data/live-recovery-test-${runLabel}.json`:'.recovery-data/live-recovery-test.json'
 try {await fs.access(evidenceFile);throw new Error('EXISTING_LIVE_TEST_RECORD_REVIEW_BEFORE_ANOTHER_TEST')}catch(e){if(e.code!=='ENOENT')throw e}
 const rpc=process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'
@@ -33,7 +34,7 @@ const safeAbi=parseAbi(['function getOwners() view returns(address[])','function
 const nft='0xBb9ebb7b8Ee75CDBf64e5cE124731A89c2BC4A07'
 const transferAbi=parseAbi(['event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)'])
 const userOpAbi=parseAbi(['event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)'])
-let server,browser,thirdWorker,stage='preflight',safe,backupGuardian,third,original,customerContext,customerPage,freshContext,freshPage
+let server,browser,thirdWorker,stage='preflight',safe,backupGuardian,third,original,customerContext,customerPage,freshContext,freshPage,replacementContext,replacementPage
 const report={environment:'REAL_ETHEREUM_SEPOLIA',chainId:11155111,authenticator:'Chrome virtual WebAuthn; not a human hardware acceptance test',organizationalIndependence:'Simulated; third-party key isolated in a separate process',module,delay,transactions:[],rounds:[],tests:[],startedAt:new Date().toISOString()}
 const persist=async()=>{await fs.mkdir('.recovery-data',{recursive:true});await fs.writeFile(evidenceFile,JSON.stringify(report,null,2))}
 const read=(address,abi,functionName,args=[])=>client.readContract({address,abi,functionName,args})
@@ -69,7 +70,23 @@ async function uiClick(page,name) {
   const idle=page.url().includes('/recovery')?'Refresh recovery state':'Authenticate and connect Safe'
   for(let i=0;i<180;i++) {
     const error=(await page.getByRole('main').getByRole('alert').allTextContents()).map(v=>v.trim()).filter(Boolean)
-    if(error.length)throw new Error(`LIVE_UI_ERROR: ${error.join(' ').slice(0,500)}`)
+    if(error.length) {
+      const key=page.url().includes('/recovery')?'continuity-recovery-operations-v1':'continuity-wallet-sepolia-pending-v1'
+      const attempt=await page.evaluate(key=>JSON.parse(localStorage.getItem(key) || 'null'),key)
+      // A single read-only receipt check can resolve temporary provider evidence.
+      // Never retry preparation/signing/submission, and never bypass chain proof.
+      if(name.startsWith('Sign and send') && attempt?.acceptance==='yes' && attempt?.lastError?.stage==='confirm') {
+        report.tests.push(`Preserved ${stage} confirmation diagnostic before one read-only recheck: ${attempt.lastError.message}`)
+        await persist()
+        await uiClick(page,page.url().includes('/recovery')?'Check sponsored operation':'Check pending operation')
+        return
+      }
+      if(name==='Simulate and sign atomic protection setup' && attempt?.state==='included') {
+        report.tests.push('Confirmed enrollment preserved after a subsequent RPC read failure; one read-only state refresh, no resubmission')
+        await persist();await uiClick(page,'Refresh recovery state');return
+      }
+      throw new Error(`LIVE_UI_ERROR: ${error.join(' ').slice(0,500)}`)
+    }
     if(await page.getByRole('button',{name:idle,exact:true}).isEnabled().catch(()=>false))return
     await page.waitForTimeout(1000)
   }
@@ -147,11 +164,49 @@ async function independentPage() {
   return {context,page}
 }
 async function signedFile(guardianPage,request) {
+  // Discard the previous public preview before uploading another intent. Wait
+  // for the validated preview button instead of accidentally signing old data.
+  await guardianPage.reload()
   await guardianPage.getByLabel('Public enrollment or recovery request',{exact:true}).setInputFiles({name:'request.json',mimeType:'application/json',buffer:Buffer.from(json(request))})
   const [download]=await Promise.all([guardianPage.waitForEvent('download',{timeout:30000}),guardianPage.getByRole('button',{name:'Sign and download verified public approval',exact:true}).click()])
   const stream=await download.createReadStream(),chunks=[]
   for await(const chunk of stream)chunks.push(chunk)
-  return Buffer.concat(chunks)
+  const buffer=Buffer.concat(chunks),approval=JSON.parse(buffer.toString())
+  if(!('kind' in request)) {
+    const digest=await read(module,artifact.abi,'getRecoveryHash',[safe,[request.newOwner],1n,BigInt(request.nonce)])
+    assert.equal(approval.signer.toLowerCase(),third.toLowerCase())
+    assert.equal(approval.intentHash,digest,'Independent file signed a different owner/domain/nonce')
+    await read(module,artifact.abi,'validateGuardianSignature',[safe,digest,third,approval.signature])
+    console.log(json({independentGuardian:third,canonicalIntentMatched:true,onchainSignatureVerified:true}))
+  }
+  return buffer
+}
+async function backupFile(page,intent) {
+  // The backup authenticator stays on its own device; only its public signature
+  // crosses to the replacement browser. Never export any authenticator keys.
+  const pk=await page.evaluate(()=>JSON.parse(localStorage.getItem('continuity-recovery-public-draft-v1')).backup.credential.passkey)
+  const digest=await read(module,artifact.abi,'getRecoveryHash',[safe,[intent.newOwner],1n,BigInt(intent.nonce)])
+  const signature=await page.evaluate(({pk,digest,rpc})=>window.signProbeDigest(pk,digest,rpc),{pk,digest,rpc})
+  await read(module,artifact.abi,'validateGuardianSignature',[safe,digest,backupGuardian,signature])
+  return Buffer.from(json({signer:backupGuardian,intentHash:digest,signature}))
+}
+async function destroyOriginalCustomer(guardianPage) {
+  assert.notEqual(customerContext,guardianPage.context())
+  await customerContext.close();customerContext=null
+}
+async function importApproval(page,buffer,count) {
+  await expect(page.getByRole('button',{name:'Refresh recovery state',exact:true})).toBeEnabled({timeout:30000})
+  await page.getByLabel('Or import independently signed public approval file',{exact:true}).setInputFiles({name:`approval-${count}.json`,mimeType:'application/json',buffer})
+  // File selection returns before asynchronous onchain signature verification.
+  // Wait for actual verified state so a second import cannot hit the busy lock.
+  for(let i=0;i<60;i++) {
+    const alerts=(await page.getByRole('main').getByRole('alert').allTextContents()).map(v=>v.trim()).filter(Boolean)
+    if(alerts.length)throw new Error(`APPROVAL_IMPORT_ERROR: ${alerts.join(' ').slice(0,500)}`)
+    if(await page.getByRole('heading',{name:`Guardian approvals: ${count} of 2`,exact:true}).isVisible())break
+    if(i===59)throw new Error('APPROVAL_VERIFICATION_TIMEOUT_NO_RECOVERY_SUBMITTED')
+    await page.waitForTimeout(1000)
+  }
+  await expect(page.getByRole('button',{name:'Refresh recovery state',exact:true})).toBeEnabled({timeout:30000})
 }
 async function main() {
   assert.equal(await client.getChainId(),11155111)
@@ -209,13 +264,26 @@ async function main() {
   assert.deepEqual([...guardians].map(a=>a.toLowerCase()).sort(),[backupGuardian,bank,third].map(a=>a.toLowerCase()).sort())
   assert.deepEqual(await read(safe,safeAbi,'getOwners'),[oldOwner]);assert.equal(await read(safe,safeAbi,'getThreshold'),1n)
   report.tests.push('Atomic enrollment leaves exactly 3 distinct non-spending guardians, threshold 2, unchanged spending owner')
+  if(await customerPage.getByRole('button',{name:'Register public backup metadata',exact:true}).isVisible())await uiClick(customerPage,'Register public backup metadata')
   await archive(customerPage)
+  await executeRounds(guardian.page)
+}
+async function executeRounds(guardianPage) {
   for(const [round,pair] of [['A+B',['backup','bank']],['A+C',['backup','third']],['B+C',['bank','third']]]) {
     let page=customerPage
+    let previous
+    if(round==='A+C') {
+      previous=await nativeSignature(customerPage)
+      const replacement=await isolatedCustomer();replacementContext=replacement.context;replacementPage=replacement.page
+      page=replacementPage
+      await find(page)
+    }
     if(round==='B+C') {
+      previous=await nativeSignature(replacementPage) // Validity proof before loss; never used to recover.
       // Permanently destroy both original customer contexts/credentials. Never
       // use WebAuthn.getCredentials, storageState or key export/import.
-      await customerContext.close();customerContext=null
+      await destroyOriginalCustomer(guardianPage)
+      if(replacementContext) {await replacementContext.close();replacementContext=null}
       const fresh=await isolatedCustomer();freshContext=fresh.context;freshPage=fresh.page;page=freshPage
       await page.goto('http://localhost:3000/recovery');assert.equal(await page.evaluate(()=>localStorage.length),0)
       report.tests.push('Original customer browser and all original customer passkeys destroyed before B+C recovery')
@@ -224,21 +292,24 @@ async function main() {
     stage=`${round}: new replacement passkey`
     await page.getByLabel('Demo operator credential',{exact:true}).fill(process.env.RECOVERY_DEMO_OPERATOR_TOKEN)
     const currentOld=(await read(safe,safeAbi,'getOwners'))[0]
-    const previous=round==='B+C'?null:await nativeSignature(page)
+    if(round==='A+B')previous=await nativeSignature(page)
     await uiClick(page,'Create replacement spending passkey');await uiClick(page,'Deploy replacement identity')
     await confirmedNative(page,`${round} replacement proxy deployment`)
     await uiClick(page,'Prepare recovery preview')
     const publicDraft=await page.evaluate(()=>JSON.parse(localStorage.getItem('continuity-recovery-public-draft-v1')))
     const owner=publicDraft.replacement.credential.signer,nonce=await read(module,artifact.abi,'nonce',[safe])
     const intent={chainId:11155111,moduleVersion:'0.2.0',safe,module,newOwner:owner,newThreshold:'1',nonce:String(nonce)}
-    if(pair.includes('backup'))await uiClick(page,'Approve with backup passkey')
+    if(pair.includes('backup')) {
+      if(round==='A+B')await uiClick(page,'Approve with backup passkey')
+      else await importApproval(page,await backupFile(customerPage,intent),1)
+    }
     if(pair.includes('bank')) {
       await page.getByLabel('Demo bank verification completed by operator (simulated identity check)',{exact:true}).check()
       await uiClick(page,'Request demo bank approval')
     }
     if(pair.includes('third')) {
-      const approval=await signedFile(guardian.page,intent)
-      await page.getByLabel('Or import independently signed public approval file',{exact:true}).setInputFiles({name:'approval.json',mimeType:'application/json',buffer:approval})
+      const approval=await signedFile(guardianPage,intent)
+      await importApproval(page,approval,2)
     }
     // Module-side negative checks: native eth_call simulation, no broadcast.
     let earlyFailed=false
@@ -290,9 +361,11 @@ async function main() {
   await persist();console.log(json(report))
 }
 main().catch(async e=>{
-  const page=freshPage || customerPage
+  const page=freshPage || replacementPage || customerPage
   if(page && !page.isClosed()) {
-    const attempt=await page.evaluate(()=>JSON.parse(localStorage.getItem('continuity-recovery-operations-v1') || 'null')).catch(()=>null)
+    report.publicAlerts=(await page.getByRole('main').getByRole('alert').allTextContents()).map(v=>v.trim()).filter(Boolean)
+    const key=page.url().includes('/recovery')?'continuity-recovery-operations-v1':'continuity-wallet-sepolia-pending-v1'
+    const attempt=await page.evaluate(key=>JSON.parse(localStorage.getItem(key) || 'null'),key).catch(()=>null)
     if(attempt)report.failedAttempt={state:attempt.state,acceptance:attempt.acceptance,safeAddress:attempt.safeAddress,userOperationHash:attempt.userOperationHash,transactionHash:attempt.transactionHash,acknowledgement:attempt.acknowledgement,submissionError:attempt.submissionError,lastError:attempt.lastError}
   }
   let sanitized=String(e.shortMessage || e.message || 'Live recovery failed').replace(/https?:\/\/[^\s]+/g,'[URL]')
