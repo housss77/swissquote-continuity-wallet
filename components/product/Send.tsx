@@ -22,7 +22,7 @@ type Quote=Awaited<ReturnType<typeof prepareSponsoredTransaction>>&{pack:Safe433
 const nonceAbi=parseAbi(['function getNonce(address sender,uint192 key) view returns(uint256)'])
 const stateLabels={prepared:'Waiting for passkey',broadcasting:'Submitting',accepted:'Submitted',included:'Confirmed',rejected:'Failed',failed:'Failed',unknown:'Unresolved'}
 export default function Send() {
-  const {wallet,loading,error,refresh}=useWallet()
+  const {wallet,loading,error,safe,refresh}=useWallet()
   const [asset,setAsset]=useState('USDC')
   const [recipient,setRecipient]=useState(''),[amount,setAmount]=useState(''),[quote,setQuote]=useState<Quote|null>(null),[pending,setPending]=useState<PendingOperation|null>(null),[proof,setProof]=useState<ConfirmedProof|null>(null),[message,setMessage]=useState(''),[problem,setProblem]=useState(''),[busy,setBusy]=useState(false)
   const active=useRef(false)
@@ -121,7 +121,7 @@ export default function Send() {
   return <Shell><PageHeading eyebrow="PAYMENTS" title="Send">Choose an asset, add a recipient, and approve with your passkey.</PageHeading>
     {(error || problem) && <div role="alert" className="alert">{problem || error}</div>}
     {message && <p role="status" className="status-line">{message}</p>}
-    {loading?<p className="wallet-loading" role="status">Checking your balance…</p>:!wallet?<div className="empty-state"><h2>Choose your wallet first</h2><p>Use the browser profile containing your spending passkey.</p><Link className="button" href="/">Open wallet</Link></div>:<>
+    {loading?<p className="wallet-loading" role="status">Checking your balance…</p>:!wallet?safe?<div className="empty-state"><h2>Your wallet is still selected</h2><p>We couldn’t read its balance or deployment status. Your saved wallet and passkey are preserved. Retrying this check does not send a transfer.</p><AddressLine address={safe}/><div className="actions"><button className="button-primary" disabled={busy} onClick={()=>void refresh()}>Retry balance check</button><Link className="button" href="/">Open wallet</Link></div><p className="small muted">Signing is blocked until the network check succeeds.</p>{pending && <p role="status">An earlier operation is saved. Its confirmation is unknown while the network is unavailable; don’t send it again.</p>}</div>:<div className="empty-state"><h2>Choose your wallet first</h2><p>Use the browser profile containing your spending passkey.</p><Link className="button" href="/">Open wallet</Link></div>:<>
       <ol className="transfer-steps" aria-label="Transfer progress">{['Details','Review','Confirm'].map((step,i)=><li key={step} aria-current={i===(pending?2:quote?1:0)?'step':undefined}><span>{i+1}</span>{step}</li>)}</ol>
       <div className="send-layout"><div className="send-main-column">
       <div className="asset-picker"><label htmlFor="send-asset">Asset</label><select id="send-asset" value={asset} disabled={busy || !!quote || !!pending} onChange={e=>setAsset(e.target.value)}><option value="USDC">USDC · USD Coin</option><option value="ETH">ETH · Ethereum (view balance)</option></select><p className="small muted">USDC transfers are available now. Additional asset transfers are coming later.</p></div>

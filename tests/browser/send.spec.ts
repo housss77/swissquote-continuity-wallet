@@ -2,6 +2,29 @@ import {test,expect} from '@playwright/test'
 import {walletFixture} from './product-fixtures'
 import {PENDING_KEY,ENTRY_POINT} from '../../lib/constants'
 import {DEMO_SAFE} from '../../lib/product'
+test('failed wallet read preserves the selected address and offers a read-only retry, not wallet recreation',async({page})=>{
+ const f=await walletFixture(page,{unavailable:true})
+ await page.goto('/send')
+ await expect(page.getByRole('heading',{name:'Your wallet is still selected'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Choose your wallet first'})).toHaveCount(0)
+ await expect(page.locator('.address-value code')).toHaveAttribute('title',DEMO_SAFE)
+ await expect(page.getByRole('button',{name:'Review transfer'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Confirm with passkey'})).toHaveCount(0)
+ await page.getByRole('button',{name:'Retry balance check'}).click()
+ await expect(page.getByRole('heading',{name:'Your wallet is still selected'})).toBeVisible()
+ expect(f.sends()).toBe(0)
+})
+test('network failure keeps earlier acceptance unresolved and preserves the attempt',async({page})=>{
+ const f=await walletFixture(page,{unavailable:true})
+ await page.addInitScript(({key,safe})=>localStorage.setItem(key,JSON.stringify({kind:'usdc',description:'Send 1 test USDC',userOperationHash:`0x${'11'.repeat(32)}`,safeAddress:safe,state:'accepted',acceptance:'yes',usdcIntent:{chainId:11155111,safe,recipient:'0x419D08ffDD36aE0Ebcc5d652D029D50c33CfdD86',token:'0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',amount:'1000000'}})),{key:PENDING_KEY,safe:DEMO_SAFE})
+ await page.goto('/send')
+ await expect(page.getByText('An earlier operation is saved.',{exact:false})).toBeVisible()
+ await expect(page.getByText('CONFIRMED ON SEPOLIA',{exact:true})).toHaveCount(0)
+ await page.getByRole('button',{name:'Retry balance check'}).click()
+ const saved=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)!),PENDING_KEY)
+ expect(saved.userOperationHash).toBe(`0x${'11'.repeat(32)}`)
+ expect(saved.state).toBe('accepted');expect(f.sends()).toBe(0)
+})
 import {encodeEventTopics,encodeAbiParameters,parseAbi} from 'viem'
 import {ENTRY_POINT_ABI} from '../../lib/proof'
 import {tokenAbi,USDC_ADDRESS} from '../../lib/product'

@@ -23,3 +23,9 @@ Automated tests use synthetic RPC fixtures and cannot establish physical Windows
 - No public-chain transaction, wallet owner change or guardian configuration change was performed.
 
 For a recording, open `http://localhost:3000/onboarding`, continue with the demo client ID, and show the real passkey wallet step. Actual new-wallet creation requires human device approval; an undeployed wallet needs explicit activation before recovery. Existing protected wallets can be connected through `/login` and inspected at `/protection`. `/demo` remains the historical evidence presentation without new signing.
+
+## Network failure follow-up
+
+Send now distinguishes an absent wallet from a failed network read of an already selected wallet. A failed read retains the public address, offers a read-only balance retry, blocks signing, and preserves earlier attempts without claiming success or resubmitting. Seven focused Send browser tests passed in both Chrome and WebKit, including unavailable-network retry and preservation of accepted attempts. TypeScript, the production build and the source/history/client-bundle secret scan passed.
+
+Read-only diagnostics returned HTTP 200 and Sepolia chain ID 11155111 from the configured RPC and local gateway. The existing acceptance Safe loaded through the actual wallet read pipeline. The earlier screenshot did not contain enough detail to establish its original RPC failure. New-wallet recovery registration still requires explicit local relayer allowlisting and the operator credential; these controls remain enforced.
