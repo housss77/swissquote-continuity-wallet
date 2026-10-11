@@ -10,8 +10,20 @@ import { validateCredential, verifyFreshCredential } from '../lib/recovery/passk
 import { recoveryReceiptIntent } from '../lib/recovery/evidence'
 import { enrollmentPreview, enrollmentTyped, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
 import { hashTypedData } from 'viem'
+import { recoveryErrorMessage } from '../lib/recovery/errors'
 const a=getAddress('0x1111111111111111111111111111111111111111'),b=getAddress('0x2222222222222222222222222222222222222222'),c=getAddress('0x3333333333333333333333333333333333333333'),d=getAddress('0x4444444444444444444444444444444444444444')
 const intent={chainId:11155111 as const,module:a,safe:b,newOwner:c,newThreshold:'1' as const,nonce:'3',moduleVersion:'0.2.0' as const}
+
+test('operator and allowlist failures explain the existing setup without replacing credentials',()=> {
+  for(const code of ['RECOVERY_OPERATOR_REQUIRED','RECOVERY_OPERATOR_UNAUTHORIZED']) {
+    const message=recoveryErrorMessage(code)
+    assert.match(message,/RECOVERY_DEMO_OPERATOR_TOKEN/)
+    assert.match(message,/not your Windows Hello PIN/)
+  }
+  assert.match(recoveryErrorMessage('RECOVERY_SAFE_NOT_ALLOWLISTED'),/RECOVERY_ALLOWED_SAFE_ADDRESSES/)
+  assert.match(recoveryErrorMessage('RECOVERY_SAFE_NOT_ALLOWLISTED'),/restart the server/)
+  assert.equal(recoveryErrorMessage('RECOVERY_INVALID_METADATA_PROOF'),'RECOVERY_INVALID_METADATA_PROOF')
+})
 test('recovery protected requires onchain 3 distinct non-owner guardians and threshold two',()=> {
   const s={enabled:true,owners:[a],spendingThreshold:1n,guardians:[b,c,d],threshold:2n}
   assert.equal(isRecoveryProtected(s),true)

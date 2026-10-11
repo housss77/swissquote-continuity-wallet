@@ -83,6 +83,62 @@ test('recovery opens from a clean browser without an original wallet session',as
   expect(await page.evaluate(()=>localStorage.length)).toBe(0)
   await expect(page.getByText('Owner rotation confirmed',{exact:false})).toHaveCount(0)
 })
+
+test('backup deployment explains missing operator and server rejection without signing or changing identity',async({page})=>{
+  // Synthetic public draft and read-only RPC fixtures; no real deployment call.
+  const safe='0x1111111111111111111111111111111111111111',owner='0x2222222222222222222222222222222222222222',signer='0x3333333333333333333333333333333333333333'
+  const backup={credential:{role:'customer_backup',rpId:'localhost',signer,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${'11'.repeat(32)}`,y:`0x${'22'.repeat(32)}`}}},signature:'0x11'}
+  await page.addInitScript(({safe,backup})=>{
+    localStorage.setItem('continuity-recovery-public-draft-v1',JSON.stringify({safe,backup}))
+    Object.defineProperty(navigator.credentials,'get',{value:async()=>{throw new Error('TEST_MUST_NOT_SIGN')}})
+    Object.defineProperty(navigator.credentials,'create',{value:async()=>{throw new Error('TEST_MUST_NOT_CREATE')}})
+  },{safe,backup})
+  const abi=[...safeAbi,...recoveryAbi,...factoryAbi]
+  let posts=0,broadcasts=0,apiError='RECOVERY_OPERATOR_UNAUTHORIZED'
+  await page.route('**/*',async route=>{
+    const request=route.request(),url=new URL(request.url())
+    if(url.hostname==='localhost') {
+      if(url.pathname!=='/api/recovery')return route.continue()
+      if(request.method()==='POST') {
+        posts++;expect(request.postDataJSON().action).toBe('deploy_credential')
+        return route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:apiError})})
+      }
+      return route.fulfill({contentType:'application/json',body:JSON.stringify({bank:'0x4444444444444444444444444444444444444444',backup:null,replacement:null,transactions:[]})})
+    }
+    const body=request.postDataJSON();let result:unknown
+    if(body.method==='eth_chainId')result='0xaa36a7'
+    else if(body.method==='eth_getCode')result=expectedModuleCode(180)
+    else if(body.method==='eth_getBlockByNumber')result={number:'0x1',timestamp:'0x100',hash:`0x${'11'.repeat(32)}`,transactions:[]}
+    else if(body.method==='eth_call') {
+      const call=decodeFunctionData({abi,data:body.params[0].data})
+      const values:Record<string,string|bigint|boolean|unknown[]>={VERSION:body.params[0].to.toLowerCase()===safe?'1.4.1':'0.2.0',getOwners:[owner],getThreshold:1n,isModuleEnabled:false,getGuardians:[],threshold:0n,nonce:0n,getRecoveryRequest:[0n,0n,0n,0n,[]],getSigner:signer,
+        domainSeparator:domainSeparator({domain:{name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:body.params[0].to as Address}})}
+      result=encodeFunctionResult({abi,functionName:call.functionName,result:values[call.functionName]})
+    } else {broadcasts++;throw new Error('Unexpected RPC in rejected provisioning test')}
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
+  })
+  await page.goto('/recovery');const storageBefore=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))
+  await page.getByLabel('Safe address',{exact:true}).fill(safe)
+  await page.getByRole('button',{name:'Find wallet',exact:true}).click()
+  const deploy=page.getByRole('button',{name:'Deploy backup identity',exact:true}),alert=page.getByRole('main').getByRole('alert')
+  await deploy.click()
+  await expect(alert).toContainText('Enter the demo operator credential')
+  await expect(alert).toContainText('not your Windows Hello PIN')
+  expect(posts).toBe(0)
+  await page.getByLabel('Demo operator credential',{exact:true}).fill('incorrect-test-only-operator')
+  await deploy.click()
+  await expect(alert).toContainText('RECOVERY_OPERATOR_UNAUTHORIZED')
+  await expect(alert).toContainText('before signing or sending')
+  expect(posts).toBe(1)
+  apiError='RECOVERY_SAFE_NOT_ALLOWLISTED'
+  await deploy.click()
+  await expect(alert).toContainText('RECOVERY_ALLOWED_SAFE_ADDRESSES')
+  await expect(alert).toContainText('restart the server')
+  expect(posts).toBe(2);expect(broadcasts).toBe(0)
+  expect(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()))).toBe(storageBefore)
+  await expect(page.getByText(signer,{exact:true})).toBeVisible()
+  await expect(page.getByText('Verified Sepolia transaction:',{exact:false})).toHaveCount(0)
+})
 test('anonymous demo bank approval is rejected before any signing or RPC action',async ({page})=>{
   await page.goto('/recovery')
   const reply=await page.evaluate(async()=>{

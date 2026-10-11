@@ -19,6 +19,7 @@ import { archiveRecoveryAttempt, checkRecoveryAttempt, loadRecoveryAttempt, send
 import type { GuardianApproval, PublicCredential, RecoveryIntent, RecoveryState } from '../lib/recovery/types'
 import type { PendingOperation } from '../lib/operations'
 import { downloadPublicJson, enrollmentPreview, verifyEnrollmentProof } from '../lib/recovery/guardian-proof'
+import { recoveryErrorMessage } from '../lib/recovery/errors'
 
 type CredentialRecord={credential:PublicCredential;signature:Hex}
 type RelayRecord={hash:Hash;state:string;action:string}
@@ -35,13 +36,14 @@ export default function RecoveryPanel() {
   const [thirdProof,setThirdProof]=useState<GuardianApproval|null>(null)
   const locked=useRef(false)
   useEffect(()=>{try {setAttempt(loadRecoveryAttempt())} catch {setError('Saved recovery attempt cannot be read. Preserve browser data; do not retry.')}},[])
-  const cleanError=(e:unknown)=>diagnose(e,'prepare','no').message
+  const cleanError=(e:unknown)=>recoveryErrorMessage(diagnose(e,'prepare','no').message)
   async function run(work:()=>Promise<unknown>) {
     if (locked.current) return
     locked.current=true;setBusy(true);setError('')
     try {await work()} catch(e){setError(cleanError(e));setStatus('Action not verified as successful. No automatic retry.')} finally {locked.current=false;setBusy(false)}
   }
   async function api(body:object,bankAction=false) {
+    if (bankAction && !operator.trim()) throw new Error('RECOVERY_OPERATOR_REQUIRED')
     const response=await fetch('/api/recovery',{method:'POST',headers:{'Content-Type':'application/json',...(bankAction?{Authorization:`Bearer ${operator}`}:{})},body:JSON.stringify(body),redirect:'error'})
     const data=await response.json()
     if (!response.ok || data.error) throw new Error(data.error || 'RECOVERY_SERVICE_UNAVAILABLE')

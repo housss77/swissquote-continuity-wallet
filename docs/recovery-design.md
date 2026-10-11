@@ -162,6 +162,12 @@ No fund transfer from the accepted Safe is needed or permitted.
 2. Add only this disposable Safe to `RECOVERY_ALLOWED_SAFE_ADDRESSES`, then restart
    the server. Restart/build after changes to public configuration.
 3. Open `/recovery`, find this Safe and enter the demo operator token locally.
+   Use the existing `RECOVERY_DEMO_OPERATOR_TOKEN` value from ignored `.env.local`
+   in **Demo operator credential**; this is separate from your Windows Hello PIN.
+   Missing credentials are blocked locally before a POST. Incorrect credentials
+   are rejected by server authentication before signing/deployment. The new Safe
+   must also be allowlisted. Preserve the backup passkey after either error;
+   do not run setup again or create a replacement credential to resolve it.
    Create a second backup passkey, deploy its proxy and verify its receipt.
 4. Enter the independent guardian's wallet address. Download the enrollment
    request. The guardian uses `/guardian` on their own wallet browser to review,
