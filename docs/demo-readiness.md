@@ -1,11 +1,10 @@
-# Morning demo readiness
+# Submission demo readiness
 
-For the phone build, use `/login`, `/activate` and `/receive`. Hosting is prepared
-but not provisioned. Follow [the HTTPS phone deployment checklist](phone-deployment.md)
-before creating an iPhone passkey; localhost credentials cannot migrate domains.
-`npm run mobile:check` adds fixed-origin/RP and persistent-storage checks.
+Open **http://localhost:3000/demo**. The approximately three-minute customer journey is **Sign in → Create wallet → Add recovery → Spend → Device loss → Recover**. Its hardcoded buttons change only in-memory story state: no real Swissquote login, WebAuthn prompt, signing, broadcast, wallet/session storage change or live timelock wait occurs. No operator token or original passkey is needed.
 
-Open **http://localhost:3000/demo**. The six-scene main pitch takes approximately 3:45. It needs no operator token, original passkey, JSON approval exchange or live timelock wait. Its recovery story is explicitly **Verified earlier on Sepolia**. Presenter narration, fallback and Q&A: [demo-script.md](demo-script.md).
+Use **Continue with Swissquote (demo)**, **Create wallet (demo)**, **Enable recovery (demo)**, **Approve transaction (demo)**, **Recover wallet (demo)** and **Restore access (demo)**. Close proof popups with **Close** and use **Next scene** between stages. Each popup labels the real historical Sepolia receipt **Verified earlier on Sepolia**. The spend illustration uses NFT proof, not USDC proof. On the last scene, also open **View recovery initiation proof** and **View recovered transaction proof**. Narration, fallback and Q&A: [demo-script.md](demo-script.md).
+
+For a separate phone/live-wallet test, use `/login`, `/activate` and `/receive`. Hosting is prepared but not provisioned. Follow [the HTTPS phone deployment checklist](phone-deployment.md) before creating an iPhone passkey; localhost credentials cannot migrate domains. `npm run mobile:check` adds fixed-origin/RP and persistent-storage checks. The optional live USDC flow below requires real funding and a human passkey approval; it is not part of the simulated `/demo` controls.
 
 ## Start and read-only check
 
@@ -27,7 +26,7 @@ The check never signs, sends or changes state. PASS checks contracts/owners/thre
 
 If another app owns port 3000, stop and identify it rather than killing an unknown process. If the app is already running, refresh Chrome; do not start a second server. A local production process is left running at handoff, but it may need restarting after a workstation shutdown.
 
-## Live signing context and funding
+## Optional live flow: signing context and funding
 
 - Use the existing **Continuity Replacement** Chrome context for the recovered real Windows Hello spending passkey. No virtual authenticator. Do not erase or export credentials.
 - Safe: `0xa46F0fb0AdD0B6c4Dae354aE2407e8f1162A6A06`.
@@ -36,7 +35,7 @@ If another app owns port 3000, stop and identify it rather than killing an unkno
 - Human actions needing a passkey: Connect passkey, Confirm with passkey, Check backup access. Presentation navigation and Check live state do not need one.
 - Do not use the original Safe `0x6f7c9faba9B6039255f2301935D891ffE6065e8C` for a new spend. Both acceptance wallets' security configuration is locked in this build.
 
-## Three-to-five-minute verification
+## Optional live USDC verification: three to five minutes
 
 1. **0:00–0:45:** Run `npm run demo:check`. Confirm owner/2-of-3/module/original Safe/history checks PASS. A USDC funding warning is honest and leaves the historical pitch usable.
 2. **0:45–1:30:** Open `/demo`, use Next/Back, check “Verified earlier on Sepolia,” open the finalization/recovered-spend explorer links. The read-only refresh is optional.

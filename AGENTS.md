@@ -1,6 +1,6 @@
 # Swissquote Continuity Wallet: recovery implementation
 
-- Work on `feat/hackathon-polish`, based on the pushed recovery checkpoint `27ad0ef151fe8f70418ab2de5daf56799ad60cd6`. The user authorized UI, demo, USDC, advisory checks, documentation, tests, small local commits and a normal feature-branch push after secret scanning. Never merge, force-push, rewrite history or discard work.
+- Prepare the final submission on `feat/hackathon-polish`, based on the pushed recovery checkpoint `27ad0ef151fe8f70418ab2de5daf56799ad60cd6`. For this submission checkpoint the user explicitly authorized a verified fast-forward merge into `main` and normal push after checks and secret scanning. Preserve both feature checkpoints. Never force-push, rewrite history, discard work or force a conflicting merge.
 - Scope: customer presentation around the existing cryptography, official Sepolia USDC and advisory transaction review. No dependency migration, new contracts, privileged spending policies, real banking/compliance integration, MPC, SLIP-39 or hosting.
 - Do not sign, broadcast, deploy, fund or trigger human authenticator prompts autonomously. Public Sepolia queries and isolated local-fork tests are allowed. Live USDC acceptance requires the human's explicit passkey approval.
 - Preserve the human-device Safe `0xa46F0fb0AdD0B6c4Dae354aE2407e8f1162A6A06`: no owner, threshold, module, guardian or recovery changes. Only a human-approved test-token transfer may use its spending owner.

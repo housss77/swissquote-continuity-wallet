@@ -1,7 +1,7 @@
 # Continuity presenter script
 
-Open `http://localhost:3000/demo`. Six scenes, approximately 3 minutes 45 seconds.
-Use the **Continuity Replacement** Chrome context for a real spending signature.
+Open `http://localhost:3000/demo`. Six customer-journey scenes, approximately three minutes.
+Any browser context can present the scripted story; it requests no real credentials. Use **Continuity Replacement** only for the separate optional live spending flow.
 The presentation itself needs no passkey, operator credential or bank access.
 
 ## Thirty-second pitch
@@ -13,16 +13,26 @@ wallet and assets. We have demonstrated that lifecycle on Sepolia, including a
 sponsored transaction after real human-operated recovery. Bank identity checks
 are simulated; the underlying signatures and transactions are real.
 
-## Main pitch: 3–4 minutes
+## Main pitch: three minutes
 
-| Scene | Time | Narration and action |
+The persistent **Simulated customer journey** label explains that these controls only change in-memory presentation state. They do not perform bank login, open an authenticator, sign or broadcast, or write wallet/session storage. Every proof popup says **Verified earlier on Sepolia**. Close each popup with **Close** before proceeding. No real timelock is shortened.
+
+| Scene | Time | Narration and exact action |
 | --- | --- | --- |
-| The problem | 20 sec | “Self-custody should not mean permanent loss. We bring customer control and a way back into one coherent banking-style experience.” Show the public wallet. |
-| Customer control | 35 sec | “This is a genuine Safe account. A customer passkey approves spending, with threshold one. Swissquote is not a required daily spending signer.” Explain the separate collective recovery power. |
-| Gasless spending | 55 sec | “The customer sends official test USDC. Pimlico pays network fees; the Safe does not need ETH.” If funded and ready, open Send, review one transfer and approve with Windows Hello. Until confirmed, say submitted or unresolved. If unavailable, show the historical NFT receipt and explicitly distinguish it from USDC. |
-| A way back | 65 sec | “This recovery was verified earlier on Sepolia.” Show enrollment, B+C initiation, the actual 252-second wait, finalization and new-owner spending. The address stayed the same. Opening these scenes does not start another recovery. |
-| Safety and Swissquote | 35 sec | “Our review decodes the action and warns about approvals or unfamiliar destinations. It is advisory, and sanctions are not checked. Swissquote could retain self-custody customers through optional recovery, security and brokerage services.” |
-| Your control | 15 sec | “Your crypto. Your control. Recovery when it matters.” Disclose simulated institutional operation and the test-only delay. |
+| Sign in | 25 sec | “Continuity is a self-custody companion close to the Swissquote account. This account entry is simulated; we are not connected to Swissquote.” Click **Continue with Swissquote (demo)**. No credentials are needed. |
+| Create wallet | 30 sec | “The real wallet uses a customer passkey. Its private key stays in the authenticator.” Click **Create wallet (demo)**. The popup shows historical Safe deployment and sponsored NFT spending, not a wallet created now. Close it; click **Next scene**. |
+| Add recovery | 30 sec | “A separate backup, the bank guardian and a trusted third party form a recovery circle. Any two may replace the owner after a delay.” Click **Enable recovery (demo)** to show the real historical enrollment proof. Registration does not prove present-day availability. Close it; click **Next scene**. |
+| Spend | 30 sec | “The customer approves spending; the sponsor pays network gas. Swissquote is not a mandatory ordinary spending signer.” Click **Approve transaction (demo)**. This reuses the historical initial NFT receipt; it is not a second or newly sent transaction. USDC is implemented and automated-tested, but no live USDC receipt is verified. Close it; click **Next scene**. |
+| Device loss | 20 sec | “Losing spending access need not move or lose the wallet. We restore control through a new passkey.” Device loss here is illustrative; no credentials are deleted and synced passkey loss is not proven. Click **Recover wallet (demo)**. |
+| Recover | 45 sec | “This B+C recovery happened earlier on Sepolia: two distinct approvals, 252 seconds elapsed against a 180-second test delay, same Safe, new owner.” Click **Restore access (demo)** for historical owner rotation. Close it; show **View recovery initiation proof** and **View recovered transaction proof**. “The new passkey then spent again. Real contracts and signatures, simulated bank identity operations.” |
+
+Finish with: **“Your assets stay yours. Swissquote adds an optional recovery path, not mandatory spending permission.”** Qualify the collective recovery power: any two guardians can take over after the delay. The 180-second delay is unsuitable for production. Optional services and the business case are explained in the technical Q&A below.
+
+Use **Back**, **Next scene** or **Restart walkthrough** to rehearse. Read-only current-state refresh is available under **Live verification and evidence provenance** → **Check live state (read-only)**. It is not required to navigate or view stored proof.
+
+## Optional real USDC flow — separate from the scripted journey
+
+Only after test tokens are funded and the human presenter is ready, use the **Continuity Replacement** context and the actual `/send` page. Review a transfer, confirm with the customer passkey once, and wait for the independently checked receipt and matching USDC Transfer event. This is outside `/demo`; it may take longer than the pitch. Follow [controlled USDC acceptance](usdc-acceptance.md). If unavailable, use the historical NFT proof and state that no live USDC transfer was verified. Never present a simulated click, a quote, or a UserOperation hash as a confirmed transfer.
 
 ## Technical version: six minutes
 
@@ -60,6 +70,7 @@ are simulated; the underlying signatures and transactions are real.
 Never call a historical action “just submitted,” claim a live USDC transfer
 without its matching receipt/logs, or equate a new browser profile with actual
 loss of synced passkeys.
+
 ## Jury questions: precise answers
 
 **Why is this self-custody?** Daily spending needs the customer passkey, not a Swissquote spending key. Explain the qualification: any two recovery guardians can replace that owner after the delay. This is customer spending control with collective social recovery, not unconditional exclusive control forever.

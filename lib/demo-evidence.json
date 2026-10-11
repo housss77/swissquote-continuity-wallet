@@ -24,6 +24,7 @@
   "recoveredUserOperationHash": "0xc39cf6ef3804a6de4d92e797a5ab4aff1f45cd01176b8acd1b2789c354c6db5b",
   "nftContract": "0xBb9ebb7b8Ee75CDBf64e5cE124731A89c2BC4A07",
   "recoveredTokenId": "71765649581188723636853532248003429882839880648380288841215969319976963251148",
+  "initialSpend": {"id":"initial-spend","label":"Original passkey deployed the Safe and minted a test NFT","detail":"A successful sponsored Safe deployment and tutorial NFT mint, approved with the original spending passkey. Zero ETH transferred; not a USDC transfer.","hash":"0x512f35b9d95d590aa0076a9331ba47313e7f6e1349113649f2f357b168fe6050","block":11888510},
   "transactions": [
     {"id":"enrollment","label":"Recovery protection enrolled","detail":"Three guardians registered, recovery threshold two. Spending owner unchanged.","hash":"0x52b695e1c6efc91daecbe61054265bf4a049924d8711b5aa8b535ecd8009c6be","block":11888940},
     {"id":"initiation","label":"Two guardians approved recovery","detail":"B+C signatures approved the same replacement owner. No original customer signature was required.","hash":"0x0279e44352fe80bec8c3a3372e9d5acc40ce0d7cc133e554404a6d6d28876c21","block":11889011},
