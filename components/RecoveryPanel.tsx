@@ -54,7 +54,9 @@ export default function RecoveryPanel() {
     const config=await response.json()
     if (!response.ok) throw new Error(config.error || 'RECOVERY_SERVICE_UNAVAILABLE')
     setBank(config.bank);setSavedBackup(config.backup)
-    if (config.replacement) setReplacement(config.replacement)
+    // The registry restores the current/pending owner for a clean browser. It
+    // must not replace a locally prepared new signer during receipt refreshes.
+    if (config.replacement) setReplacement(current=>current ?? config.replacement)
     if (config.transactions?.length) setRelay(config.transactions[0])
     if (s.request.executableAt>0n && s.request.newOwners.length===1 && s.request.newThreshold===1n) {
       setIntent({chainId:11155111,moduleVersion:'0.2.0',safe:s.safe,module:s.module,newOwner:s.request.newOwners[0],newThreshold:'1',nonce:s.request.nonce.toString()})

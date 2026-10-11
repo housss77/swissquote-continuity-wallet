@@ -1,4 +1,52 @@
 import { test, expect } from '@playwright/test'
+import { decodeFunctionData, encodeFunctionResult, domainSeparator, type Address } from 'viem'
+import { expectedModuleCode, recoveryAbi, safeAbi, factoryAbi } from '../../lib/recovery/contracts'
+
+test('receipt refresh preserves a new replacement instead of restoring the previous spending owner',async({page})=>{
+  // Synthetic public fixtures only. No signing, broadcasting or chain-success
+  // claim: reproduce the metadata refresh between deployment and preparation.
+  const safe='0x1111111111111111111111111111111111111111',oldOwner='0x2222222222222222222222222222222222222222',newOwner='0x3333333333333333333333333333333333333333'
+  const guardians=['0x4444444444444444444444444444444444444444','0x5555555555555555555555555555555555555555','0x6666666666666666666666666666666666666666']
+  const record=(signer:string,x:string)=>({credential:{role:'replacement',rpId:'localhost',signer,passkey:{rawId:'11'.repeat(32),coordinates:{x:`0x${x.repeat(32)}`,y:`0x${'22'.repeat(32)}`}}},signature:'0x11'})
+  const fresh=record(newOwner,'11'),previous=record(oldOwner,'33')
+  await page.addInitScript(({safe,fresh})=>localStorage.setItem('continuity-recovery-public-draft-v1',JSON.stringify({safe,backup:null,replacement:fresh})),{safe,fresh})
+  let sends=0,signs=0
+  await page.addInitScript(()=>{Object.defineProperty(navigator.credentials,'get',{value:async()=>{throw new Error('TEST_MUST_NOT_SIGN')}})})
+  const abi=[...safeAbi,...recoveryAbi,...factoryAbi]
+  await page.route('**/*',async route=>{
+    const request=route.request(),url=new URL(request.url())
+    if(url.hostname==='localhost') {
+      if(url.pathname==='/api/recovery')return route.fulfill({contentType:'application/json',body:JSON.stringify({bank:guardians[1],backup:null,replacement:previous,transactions:[]})})
+      return route.continue()
+    }
+    const body=request.postDataJSON()
+    let result:unknown
+    if(body.method==='eth_chainId')result='0xaa36a7'
+    else if(body.method==='eth_getCode')result=expectedModuleCode(180)
+    else if(body.method==='eth_getBlockByNumber')result={number:'0x1',timestamp:'0x100',hash:`0x${'11'.repeat(32)}`,transactions:[]}
+    else if(body.method==='eth_call') {
+      const call=decodeFunctionData({abi,data:body.params[0].data}),name=call.functionName
+      const values:Record<string,string|bigint|boolean|unknown[]>={VERSION:body.params[0].to.toLowerCase()===safe?'1.4.1':'0.2.0',getOwners:[oldOwner],getThreshold:1n,isModuleEnabled:true,getGuardians:guardians,threshold:2n,nonce:4n,
+        getRecoveryRequest:[0n,0n,0n,0n,[]],
+        domainSeparator:domainSeparator({domain:{name:'Social Recovery Module',version:'0.2.0',chainId:11155111,verifyingContract:body.params[0].to as Address}}),
+        getSigner:call.args?.[0]===BigInt(fresh.credential.passkey.coordinates.x)?newOwner:oldOwner}
+      result=encodeFunctionResult({abi,functionName:name,result:values[name]})
+    } else {if(body.method==='eth_sendUserOperation' || body.method==='eth_sendRawTransaction')sends++;if(body.method.includes('sign'))signs++;throw new Error(`Unexpected preparation RPC ${body.method}`)}
+    await route.fulfill({contentType:'application/json',body:JSON.stringify({jsonrpc:'2.0',id:body.id,result})})
+  })
+  await page.goto('/recovery');await page.getByLabel('Safe address',{exact:true}).fill(safe)
+  await page.getByRole('button',{name:'Find wallet',exact:true}).click()
+  const panel=page.locator('section').filter({has:page.getByRole('heading',{name:'Prepare replacement access',exact:true})})
+  await expect(panel.getByText(newOwner,{exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Refresh recovery state',exact:true}).click()
+  await expect(page.getByRole('button',{name:'Refresh recovery state',exact:true})).toBeEnabled()
+  await expect(panel.getByText(newOwner,{exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Prepare recovery preview',exact:true}).click()
+  await expect(page.getByRole('status')).toContainText('Replacement owner preview prepared')
+  await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0)
+  expect(sends).toBe(0);expect(signs).toBe(0)
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('continuity-recovery-public-draft-v1')!).replacement.credential.signer)).toBe(newOwner)
+})
 
 test('recovery opens from a clean browser without an original wallet session',async ({page})=>{
   await page.goto('/recovery')
