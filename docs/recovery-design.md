@@ -8,8 +8,11 @@ writes to `0x6f7c9faba9B6039255f2301935D891ffE6065e8C`.
 All three recovery pairs have completed real Sepolia owner rotation and a new-passkey
 transaction on a disposable Safe, including B+C without any old customer credential.
 See [the public acceptance evidence and exact transaction hashes](recovery-evidence.md).
-These tests use virtual authenticators; human-device acceptance and real institutional
-controls remain outstanding. The accepted Safe has not had recovery installed.
+The three-pair automated run used virtual authenticators. A later human Windows
+Hello B+C recovery and new-passkey sponsored NFT mint also passed on a separate
+disposable Safe; see the human acceptance section in that evidence. Physical loss
+of OS-synchronized credentials and real institutional controls remain unverified.
+The accepted Safe has not had recovery installed.
 
 ## Contract compatibility and provenance
 

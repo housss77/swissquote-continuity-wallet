@@ -1,12 +1,17 @@
 # Task 02: verified Sepolia recovery evidence
 
+Two separate evidence sets are recorded here: the earlier automated three-pair
+test and the later human-operated Windows Hello recovery. They use different
+disposable Safes. The human B+C result and its independently checked postconditions
+are documented below; neither test authorizes changes to the accepted Step 1 Safe.
+
 The core create → sign → lose access → recover → sign lifecycle passed on a
 **disposable Ethereum Sepolia Safe**, chain ID **11155111**, on 2026-10-11.
 All three guardian pairs used real cryptographic approvals and real onchain
 initiation/finalization. All twelve Task 02 acceptance conditions passed within
 this automated test. No local-fork hash is presented here as Sepolia evidence.
 
-**This is not human-hardware acceptance or production readiness.** Chrome virtual
+**The automated run is not human-hardware acceptance or production readiness.** Chrome virtual
 authenticators generated real WebAuthn ES256 assertions, validated by deployed
 Safe passkey contracts and the recovery module. One developer operated isolated
 test actors; organizational independence and institutional identity checking are
@@ -16,7 +21,152 @@ this disposable Safe with valuable assets.
 
 See the [design, setup, human demo and threat model](recovery-design.md).
 
-## Verified configuration
+## Human Windows Hello acceptance
+
+**PASS for the observed human spending, B+C recovery and recovered spending
+lifecycle on Ethereum Sepolia.** The user reports real Windows Hello approvals
+for the spending, separate backup and replacement credentials, and a real
+MetaMask independent guardian. Read-only RPC verification at block **11889069**,
+`2026-10-11T03:38:35.658Z`, independently established the receipts, signatures,
+contract configuration and NFT ownership below. This verification did not sign,
+broadcast, replace credentials or rotate any guardian.
+
+| Item | Verified public value |
+| --- | --- |
+| Same disposable Safe throughout | [0xa46F0fb0AdD0B6c4Dae354aE2407e8f1162A6A06](https://sepolia.etherscan.io/address/0xa46F0fb0AdD0B6c4Dae354aE2407e8f1162A6A06) |
+| Old spending owner, now `isOwner = false` | `0x94a4F6affBd8975951142c3999aEAB7ecee555c2` |
+| New spending owner, `isOwner = true` | `0x1195F0aCdBf59F45c2C0E6FF4Bc40BF58821fBE1` |
+| Spending threshold | 1; exactly one current owner |
+| Backup guardian A, still registered | `0xEb46B6f8BEeAE07A42fbB1a772c1Bc892ebB8fA3` |
+| Swissquote mock guardian B | `0xbED556C6B6F68815B506EC7cF962C8C483602aC1` |
+| Independently selected MetaMask guardian C | `0x419D08ffDD36aE0Ebcc5d652D029D50c33CfdD86` |
+| Recovery configuration | Exactly three distinct non-owner guardians; threshold 2 |
+| Recovery module | `0xDC07dEa53aE572EeF2Af0c553b470E6BE388adBC`; exact reviewed v0.2.0 runtime and 180-second immutable verified |
+| Existing ERC-4337 module and fallback handler | `0xa581c4A4DB7175302464fF3C06380BC3270b4037`; remains enabled |
+| New passkey proxy | 236 bytes of deployed code; factory binding and existing possession signature verified |
+| Final recovery state | Nonce 4; executable timestamp 0; no proposed owners or pending onchain request |
+| Recovered spending sponsor | `0x6666666666667849c56f2850848cE1C4da65c68b` |
+
+### Confirmed human-device transactions
+
+All seven listed receipts succeeded on Sepolia with at least two confirmations.
+The recovered transaction had **29 confirmations** and finalization had **38**
+at the first acceptance read. These confirmation counts are evidence at that
+time, not a claim of Ethereum finality.
+
+| Action | Verified transaction | Block |
+| --- | --- | ---: |
+| Original Windows Hello spending; sponsored Safe deployment and NFT mint | [0x512f35b9d95d590aa0076a9331ba47313e7f6e1349113649f2f357b168fe6050](https://sepolia.etherscan.io/tx/0x512f35b9d95d590aa0076a9331ba47313e7f6e1349113649f2f357b168fe6050) | 11888510 |
+| Separate backup passkey identity deployment | [0x76e3140a75eec485595686b4e8dda782c7d518d065a08caafdabcf4463253461](https://sepolia.etherscan.io/tx/0x76e3140a75eec485595686b4e8dda782c7d518d065a08caafdabcf4463253461) | 11888654 |
+| Atomic sponsored 2-of-3 enrollment | [0x52b695e1c6efc91daecbe61054265bf4a049924d8711b5aa8b535ecd8009c6be](https://sepolia.etherscan.io/tx/0x52b695e1c6efc91daecbe61054265bf4a049924d8711b5aa8b535ecd8009c6be) | 11888940 |
+| Replacement Windows Hello identity deployment | [0x5dcfbb4e7c5240da35f5b5495d6516d30a7b8b2ab6e8fe725ea92d0f6603ae1a](https://sepolia.etherscan.io/tx/0x5dcfbb4e7c5240da35f5b5495d6516d30a7b8b2ab6e8fe725ea92d0f6603ae1a) | 11888972 |
+| B+C recovery initiation, two approvals | [0x0279e44352fe80bec8c3a3372e9d5acc40ce0d7cc133e554404a6d6d28876c21](https://sepolia.etherscan.io/tx/0x0279e44352fe80bec8c3a3372e9d5acc40ce0d7cc133e554404a6d6d28876c21) | 11889011 |
+| Confirmed owner rotation after the delay | [0x46632998eeaccb86aa4ede0819933ef553973a2ef9ee3f1b706efafc4a97d6bc](https://sepolia.etherscan.io/tx/0x46632998eeaccb86aa4ede0819933ef553973a2ef9ee3f1b706efafc4a97d6bc) | 11889032 |
+| Sponsored NFT mint with the recovered spending passkey | [0x2c48f3936c4c04f36a073476f2e194ddc71f1514456e38906ed35c3bbc08c579](https://sepolia.etherscan.io/tx/0x2c48f3936c4c04f36a073476f2e194ddc71f1514456e38906ed35c3bbc08c579) | 11889041 |
+
+The initiation calldata contains exactly B and C signatures for the same
+chain/module/Safe/new-owner/threshold/nonce-bound intent, nonce **3**. Both
+signatures were revalidated read-only by `validateGuardianSignature`. No original
+spending or backup approval is present in that request. Matching `RecoveryExecuted`
+and `RecoveryFinalized` events identify the same intent. Earliest finalization was
+`2026-10-11T03:29:48.000Z`; **252 seconds** of actual block time elapsed between
+initiation and finalization, exceeding the immutable 180-second delay.
+
+The recovered spend contains a matching successful EntryPoint v0.6
+`UserOperationEvent`, sender equal to this Safe, and the nonzero deployed Pimlico
+paymaster. Its UserOperation hash is
+`0xc39cf6ef3804a6de4d92e797a5ab4aff1f45cd01176b8acd1b2789c354c6db5b`.
+It minted tutorial NFT
+`71765649581188723636853532248003429882839880648380288841215969319976963251148`
+at `0xBb9ebb7b8Ee75CDBf64e5cE124731A89c2BC4A07`.
+`ownerOf` returns the same Safe. The original NFT
+`819036034709413038677735376528191856445765867659622664479471129425567523649`
+also remains owned by that Safe. Both mints transferred **zero ETH**.
+
+Read-only ordinary module-spending calls from the old owner and each registered
+guardian reverted with **GS104**. Together with the owner-list and `isOwner`
+checks, these establish current authorization removal; they do not delete or
+make the old Windows Hello credential inaccessible on its device.
+
+### Original wallet and evidence limits
+
+The accepted Safe `0x6f7c9faba9B6039255f2301935D891ffE6065e8C` retains its original
+owner, spending threshold one, ordinary Safe nonce zero, EntryPoint nonce one,
+and only its original Safe4337Module. Recovery remains disabled with zero
+guardians, threshold zero and no request. Its account-specific shared-passkey
+configuration and fallback handler match the pre-enrollment read at block
+**11888926**. No UserOperation for that Safe appeared between the preflight and
+the final read. Recovery writes remain blocked by the application.
+
+A full historical `eth_getProof` comparison was unavailable: the provider returned
+JSON-RPC **-32602**, `distance to target block exceeds maximum proof window`.
+The unchanged-state claim above is based on the explicit configuration, nonce,
+passkey-storage and event reads, not an unavailable complete storage proof.
+
+The authenticator's Windows Hello origin is reported by the human; blockchain
+receipts establish cryptographic authorization but cannot attest a physical
+device or prove OS-synchronized credentials are unavailable. This human onchain
+recovery demonstrates **B+C**. A+B and A+C are covered by the separate automated
+real-Sepolia run below, not claimed as human-device rounds. The saved backup
+possession proof validates through ERC-1271, but this human B+C recovery did not
+exercise a backup-passkey approval of a recovery intent.
+
+### Backup guardian after recovery
+
+Owner rotation does **not** revoke backup A. Its old passkey remains an authorized
+recovery guardian. If it is trusted and still accessible, recovery alone does not
+require replacing it; **Verify backup access** establishes fresh access without
+broadcasting. If it was lost, possibly compromised, or shares the failed device,
+replace it before relying on full recovery resilience. Prefer a separate physical
+device or security key rather than another credential in the same Windows Hello
+failure domain.
+
+After explicit approval, the existing `/recovery` workflow is: verify the preserved
+finalization receipt to select the current replacement spending passkey; preserve
+the completed sponsored attempt using the explicit history control; create a new
+distinct recovery passkey and deploy its identity; then **Sign replacement of
+backup guardian**. That last button simulates, signs and broadcasts one atomic
+revoke-old/add-new batch with threshold two throughout, leaving B/C and the spending
+owner unchanged. Confirm the receipt, three guardians, old A removal and new
+backup access before claiming readiness. Guardian changes invalidate earlier
+recovery approvals. No part of this rotation was performed during acceptance.
+
+Public acceptance records remain ignored in
+`.recovery-data/human-windows-hello-acceptance-readonly.json`. No credential IDs,
+public-key coordinate payloads, raw signatures, private keys or credential-bearing
+URLs are included in this document.
+
+### Final human-acceptance regression checks
+
+Rechecked on 2026-10-11 with Node **24.16.0**, npm **11.13.0**. No live sending
+harness was run. Browser checks used isolated test profiles against the production
+server; the fork used only a local Anvil instance with its own test credentials.
+The real user's browser profile and Windows Hello credentials were not accessed.
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | Pass |
+| `npm test` | 64 passed |
+| `npm run test:recovery:server` | 4 passed |
+| `npm run test:recovery` | 29 isolated-fork security checks passed |
+| `npm run build` | Pass; existing viem/ox dynamic-dependency and Gelato deprecation warnings |
+| `npm run test:browser` | 14 passed against the production build |
+| `npm run check:secrets` | No findings; source/index and private server credentials in client bundles checked |
+| `npm audit --json` | 6 low findings; 0 moderate, high or critical |
+| `/recovery` startup | HTTP 200 after rebuilding and restarting |
+| Git review | Documentation only; local env, public raw evidence and diagnostic tooling ignored/untracked |
+
+Manual setup exposed missing/mismatched demo operator credentials, an invalid
+checksum in the local Safe allowlist, wallet-provider/account/network ambiguity,
+and missing successful enrollment-import feedback. The existing fixes provide
+actionable errors, explicit wallet selection, normalized account comparison,
+configuration-bound cryptographic proof checks, and **Independent guardian
+verified** feedback. Focused regressions are included in the passing suites above.
+The original wrong-third-party-account error did not preserve the wallet's
+account/network response; its exact underlying cause is not inferred from the
+successful retry.
+
+## Automated three-pair configuration
 
 | Item | Public value |
 | --- | --- |
@@ -158,7 +308,7 @@ The separate UserOperation hashes are:
 | B+C post-recovery sponsored NFT | `0x4b2857774129635df5c8eadf393f3c8853b680c04dffb5948ab7bec8abc8c578` |
 | atomic sponsored backup guardian repair | `0xc9780164e3697d44a8a0984d7baadaa446994a404f9dfc8123865615d4b4875d` |
 
-## Automated checks
+## Earlier automated run checks
 
 Tested with Node **24.16.0** and npm **11.13.0**.
 
@@ -211,9 +361,10 @@ share a failure domain. Public metadata, frontend integrity, registry availabili
 single-process relay coordination and exposed testnet provider quotas remain risks.
 Two confirmations are not Ethereum finality. Six low dependency findings remain.
 
-Recommended next step: perform the linked human-device demo on **another new
-disposable Safe**, with separate spending/backup devices and an independently
-operated third-party wallet. Verify B+C from a clean browser without old customer
-devices, then a new-passkey transaction. Existing test actors are destroyed and
-cannot be reused. Installation on the accepted Safe needs a separately approved
-concrete proposal with production-appropriate delay and proven real guardians.
+The human Windows Hello B+C recovery and subsequent sponsored transaction now
+passed on the separate disposable Safe documented above. Physical loss of all
+customer authenticators, independent backup-device availability and human A+B/A+C
+recovery rounds remain outside that evidence. Existing automated actors are
+destroyed and cannot be reused. Installation on the accepted Safe needs a
+separately approved concrete proposal with a production-appropriate delay and
+proven real guardians. This acceptance does not authorize that installation.

@@ -10,8 +10,11 @@ Candide v0.2.0 module. See the [recovery design, setup, tests and threat model](
 All three guardian pairs completed real recovery and new-passkey transactions
 on a disposable Sepolia Safe; see the [verified recovery evidence](docs/recovery-evidence.md).
 The automated tests use virtual WebAuthn authenticators and simulated institutional
-controls; a human-device recovery demo remains to be performed. Local fork hashes
-are not Sepolia evidence. The existing accepted Safe is blocked from recovery writes.
+controls. A later human Windows Hello B+C recovery and sponsored transaction with
+the recovered spending passkey passed on another disposable Safe; its verified
+hashes and limitations are in the same evidence document. Physical loss of
+OS-synchronized credentials and real institutional controls remain unverified.
+Local fork hashes are not Sepolia evidence. The existing accepted Safe is blocked from recovery writes.
 Earlier spike diagnostics below describe their original evidence and limitations.
 
 ## Basis and pinned stack
