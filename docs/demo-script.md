@@ -60,3 +60,24 @@ are simulated; the underlying signatures and transactions are real.
 Never call a historical action “just submitted,” claim a live USDC transfer
 without its matching receipt/logs, or equate a new browser profile with actual
 loss of synced passkeys.
+# Jury questions: precise answers
+
+**Why is this self-custody?** Daily spending needs the customer passkey, not a Swissquote spending key. Explain the qualification: any two recovery guardians can replace that owner after the delay. This is customer spending control with collective social recovery, not unconditional exclusive control forever.
+
+**Can Swissquote freeze or steal funds?** The bank guardian alone cannot spend or recover, and there is no bank spending guard. Two guardians colluding can take over after the delay. Separately, USDC issuer powers can affect transfers. The local demo UI's safety locks are not onchain permissions.
+
+**What if two guardians collude?** They can replace the owner. Real independent operations, a much longer delay, alerts and customer cancellation are required production defenses; several are absent here. Say the limitation plainly.
+
+**What if my phone is stolen?** WebAuthn requires user verification. If the attacker also has usable spending access, the threshold-one Safe can spend without our advisory UI. Recovery does not freeze those spends. Stronger independent customer authorization is a future proposal.
+
+**Why not MPC?** Safe/passkeys and an established recovery module allowed a verifiable solo implementation without new share servers or custom cryptography. MPC is a different trust/availability model, not something we implemented or universally rejected.
+
+**What if every customer device is lost?** The verified B+C path used the bank mock and independent third party to install a new customer passkey after the actual delay. Neither original customer credential was required. Human identity verification and organizational independence still need production implementation.
+
+**How do you prove actual ownership?** Onchain signatures prove control and approvals for specific intents. They do not prove beneficial ownership. A bank-session-bound Safe ERC-1271 challenge plus separately verified legal identity is proposed, not implemented.
+
+**What is genuine and what is mocked?** Real: contracts, signatures, timelock, owner rotation, same address, sponsored NFT receipts. Automated: virtual authenticators/fork tests and USDC transfer validation. Simulated: institutional identity checks and organizational services. No real USDC receipt yet. The presentation labels completed proof as historical.
+
+**Who funds gas and how does Swissquote profit?** Pimlico sponsors this testnet flow. A future bank subsidy could be an acquisition/retention cost; optional premium services and brokerage could contribute revenue. Our economics are explicitly hypothetical and exclude significant costs.
+
+**Is it compliant with Swiss law?** No certification or legal approval is claimed. We distinguish spending and recovery power, control proof and beneficial ownership, and propose review against FINMA's AML/custody guidance. Sanctions screening and bank infrastructure are absent.

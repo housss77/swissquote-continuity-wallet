@@ -1,4 +1,21 @@
-# Swissquote Continuity Wallet — Safe/passkey viability spike
+# Swissquote Continuity — hackathon concept
+
+Start the polished jury walkthrough at **http://localhost:3000/demo**. Customer
+routes: `/` wallet, `/send` test USDC, `/protection` recovery settings, `/recovery`
+guided recovery overview, `/activity` real historical evidence. `/guardian` keeps
+the independent signing ceremony. Original technical workflows remain available
+at `/lab` and `/lab/recovery`; unsigned advisory examples are at `/lab/safety`.
+
+Polish work is on **feat/hackathon-polish**, preserving the pushed recovery
+checkpoint. No main merge or security-configuration change to either accepted
+Safe was made. Live USDC is implemented and automated-tested, **not yet human
+verified**. See [morning readiness and exact human steps](docs/demo-readiness.md),
+[USDC acceptance](docs/usdc-acceptance.md), [pitch and Q&A](docs/demo-script.md),
+[business case](docs/business-case.md), [Swiss regulatory notes](docs/swiss-regulatory-notes.md)
+and [security limits](docs/security-and-limitations.md).
+
+Read-only readiness: `npm run demo:check`. Production: `npm run build`, then
+`npm run start`. Development: `npm run dev`. Never run both on port 3000.
 
 This prototype implements passkey creation/authentication, a passkey-controlled
 Safe and sponsored ERC-4337 operations on **Ethereum Sepolia only (11155111)**.
@@ -42,7 +59,8 @@ after deployment to allow subsequent operations with the configured shared signe
 
 ## Exact setup and run commands
 
-Run from this repository in PowerShell. Recovery work stays on `feat/recovery`.
+Run from this repository in PowerShell. Final polish stays on `feat/hackathon-polish`;
+`feat/recovery` remains the preserved acceptance checkpoint.
 
 ```powershell
 node --version
