@@ -12,6 +12,17 @@ export function friendlyError(error: unknown, stage: Stage): string {
     item = value.cause
   }
   const text = parts.join(' ').toLowerCase()
+  if (/usdc_invalid_amount/.test(text)) return 'Enter a positive USDC amount with no more than 6 decimal places. Exponents and negative amounts are not supported.'
+  if (/insufficient_usdc/.test(text)) return 'Your wallet does not have enough test USDC. Use Circle’s free faucet for this wallet address, then refresh the balance.'
+  if (/usdc_balance_unavailable/.test(text)) return 'USDC balance could not be verified. Refresh the wallet before preparing a transfer.'
+  if (/usdc_simulation_failed/.test(text)) return 'The token contract did not confirm the simulated transfer. Signing is blocked.'
+  if (/usdc_transfer_unverified|usdc_balance_reconciliation/.test(text)) return 'The expected USDC transfer could not be independently verified. No transfer success is claimed; preserve the attempt and check again.'
+  if (/customer_passkey_unavailable/.test(text)) return 'Use the Chrome profile with your current spending passkey. The recovered demo wallet uses the Continuity Replacement profile.'
+  if (/original_wallet_read_only/.test(text)) return 'This original acceptance wallet is read-only. Select the disposable demo wallet to test a transfer.'
+  if (/demo_configuration_changed/.test(text)) return 'The verified demo wallet configuration has changed or could not be verified. Signing is blocked; inspect its onchain state.'
+  if (/send_previous_attempt|send_already_active/.test(text)) return 'Another operation is saved or active in this browser. Check its confirmation and preserve the evidence before preparing a new transfer.'
+  if (/send_lock_unavailable/.test(text)) return 'This browser cannot safely coordinate sends across tabs. Use current Chrome or Edge on localhost.'
+  if (/sponsorship_quote_expired|send_nonce_changed/.test(text)) return 'This review expired or the wallet nonce changed. Return to the form and prepare a fresh review. Nothing was resubmitted.'
   if (/unsupported_browser|notsupportederror/.test(text)) return 'WebAuthn ES256 passkeys are unavailable. Use current Chrome or Edge with Windows Hello, a compatible security key, or a supported phone.'
   if (/insecure_context|securityerror/.test(text)) return 'Passkeys require a secure context. Open http://localhost:3000 in Chrome or Edge; keep the same hostname for this credential.'
   if (/notallowederror|aborterror/.test(text) && ['passkey', 'authenticate', 'sign'].includes(stage)) return 'The passkey request was cancelled, rejected, or timed out. Unlock your authenticator and retry.'

@@ -1,13 +1,15 @@
 import type { Address, Hash } from 'viem'
 import { diagnose, isDefiniteRejection, RpcFailure, type Acceptance, type Diagnostic } from './diagnostics'
 import type { ConfirmedProof } from './proof'
+import type { UsdcIntent } from './usdc'
 
 export type OperationState = 'prepared' | 'broadcasting' | 'accepted' | 'included' | 'rejected' | 'failed' | 'unknown'
 export type PendingOperation = {
   userOperationHash: Hash
   safeAddress: Address
   paymasterAddress?: Address
-  kind: 'transfer' | 'mint' | 'recovery'
+  kind: 'transfer' | 'mint' | 'recovery' | 'usdc'
+  usdcIntent?: UsdcIntent
   description: string
   state: OperationState
   acceptance: Acceptance

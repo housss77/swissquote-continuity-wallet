@@ -1,5 +1,6 @@
 import { decodeEventLog, parseAbi, zeroAddress, type Address, type Hash, type TransactionReceipt } from 'viem'
 import { ENTRY_POINT } from './constants'
+import type { TransferProof } from './usdc'
 
 export const ENTRY_POINT_ABI = parseAbi([
   'event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)',
@@ -12,6 +13,7 @@ export type ConfirmedProof = {
   blockNumber: string
   paymaster: Address
   actualGasCost: string
+  transfer?: TransferProof
 }
 
 export function verifyReceipt(

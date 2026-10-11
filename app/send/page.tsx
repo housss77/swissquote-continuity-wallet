@@ -1,2 +1,2 @@
-import {Shell,PageHeading} from '../../components/product/Shell'
-export default function SendPage(){return <Shell><PageHeading title="Send USDC">Official Circle test USDC on Ethereum Sepolia.</PageHeading><div className="notice">Live transfers require test USDC funding and your spending passkey. No transaction is submitted by opening this page.</div><a className="button" href="https://faucet.circle.com/" target="_blank" rel="noreferrer">Get free test USDC ↗</a></Shell>}
+import Send from '../../components/product/Send'
+export default function SendPage(){return <Send/>}

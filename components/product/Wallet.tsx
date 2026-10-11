@@ -4,12 +4,12 @@ import {useRef,useState} from 'react'
 import {formatUnits,isAddress} from 'viem'
 import {Shell,PageHeading,AddressLine} from './Shell'
 import {useWallet} from './useWallet'
-import {DEMO_SAFE,CUSTOMER_PASSKEY_KEY,selectSafe,sameAddress,ORIGINAL_SAFE} from '../../lib/product'
+import {DEMO_SAFE,CUSTOMER_PASSKEY_KEY,selectSafe,selectedSafe,sameAddress,ORIGINAL_SAFE} from '../../lib/product'
 import {friendlyError} from '../../lib/errors'
 import {HistoricalActivity} from './Activity'
 
 export default function Wallet() {
-  const {wallet,loading,error,refresh,choose}=useWallet()
+  const {wallet,loading,error,safe,refresh,choose}=useWallet()
   const [input,setInput]=useState(''),[actionError,setActionError]=useState(''),[busy,setBusy]=useState(false),[connected,setConnected]=useState(false)
   const lock=useRef(false)
   async function connect(create=false) {
@@ -19,7 +19,7 @@ export default function Wallet() {
       const {createdPasskey,currentPasskey}=await import('../../lib/customer-credentials')
       const {initializeWallet,walletSnapshot}=await import('../../lib/wallet')
       let pk
-      if(create) {if(createdPasskey() || loadPasskey())throw new Error('EXISTING_CREDENTIAL_PRESERVED');pk=await createPasskey();localStorage.setItem(CUSTOMER_PASSKEY_KEY,JSON.stringify({rawId:pk.rawId,coordinates:pk.coordinates}))}
+      if(create) {if(selectedSafe() || createdPasskey() || loadPasskey())throw new Error('EXISTING_CREDENTIAL_PRESERVED');pk=await createPasskey();localStorage.setItem(CUSTOMER_PASSKEY_KEY,JSON.stringify({rawId:pk.rawId,coordinates:pk.coordinates}))}
       else {pk=wallet?.deployed?await currentPasskey(wallet.safe):createdPasskey() || loadPasskey();if(!pk)throw new Error('CUSTOMER_PASSKEY_UNAVAILABLE');await authenticatePasskey(pk)}
       const pack=await initializeWallet(pk,wallet?.deployed?wallet.safe:undefined)
       const result=await walletSnapshot(pack);selectSafe(result.address);await refresh(result.address);setConnected(true)
@@ -32,6 +32,6 @@ export default function Wallet() {
       <div className="wallet-detail-grid"><section className="plain-section"><div className="section-heading"><h2>Recovery protection</h2><Link href="/protection">Manage ↗</Link></div><p className={`status-line ${wallet.recovery?.protected?'positive':''}`}>{wallet.recovery?.protected?'Recovery enabled — 2 of 3 approvals required':wallet.recovery?'Recovery not configured':wallet.deployed?'Recovery status unavailable':'Wallet not yet deployed'}</p><p className="muted">{wallet.recovery?.protected?'Your backup passkey and two trusted guardians provide a delayed recovery path. Guardian availability still needs checking.':'Your wallet is controlled by your spending passkey. Recovery is a separate protection.'}</p></section><section className="plain-section"><h2>Passkey access</h2><p>{connected?'Passkey authenticated for this session.':'Viewing public wallet information.'}</p><p className="muted">{sameAddress(wallet.safe,ORIGINAL_SAFE)?'This original acceptance wallet is read-only.':'Your device approves each transaction. Swissquote is not a required spending signer.'}</p><button disabled={busy} onClick={()=>void connect()}>{busy?'Waiting for your device…':'Connect passkey'}</button></section></div>
       {wallet.usdc===0n && <div className="funding-row"><div><h2>Ready for your first USDC transfer?</h2><p className="muted">Get free test USDC for this address. You do not need ETH for sponsored network fees.</p></div><a className="button" href="https://faucet.circle.com/" target="_blank" rel="noreferrer">Get free test USDC ↗</a></div>}
       {wallet.warnings.map(w=><p key={w} className="alert" role="status">{w}</p>)}<div className="section-heading activity-heading"><h2>Activity</h2><Link href="/activity">View activity ↗</Link></div>{sameAddress(wallet.safe,DEMO_SAFE)?<HistoricalActivity compact/>:<p className="muted">No verified customer transfers are recorded in this browser yet.</p>}
-    </>:<section className="welcome-panel"><h2>A wallet that starts with your passkey</h2><p className="lede">Approve transactions with your device. Add recovery without sharing your spending key.</p><div className="actions"><button className="button-primary" disabled={busy} onClick={()=>void connect(true)}>Create wallet</button><button disabled={busy} onClick={()=>void connect()}>Connect passkey</button></div><div className="divider"/><label htmlFor="view-address">Already have a wallet? View its public address</label><div className="inline-form"><input id="view-address" value={input} onChange={e=>setInput(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false}/><button disabled={!isAddress(input)} onClick={()=>void choose(input)}>View wallet</button></div><button className="button-text" onClick={()=>void choose(DEMO_SAFE)}>View the verified demo wallet</button></section>}
+    </>:safe?<section className="empty-state"><h2>Your wallet is preserved</h2><AddressLine address={safe}/><p>Its balance and recovery state could not be checked. Refresh before connecting or sending.</p><button onClick={()=>void refresh()}>Refresh wallet</button></section>:<section className="welcome-panel"><h2>A wallet that starts with your passkey</h2><p className="lede">Approve transactions with your device. Add recovery without sharing your spending key.</p><div className="actions"><button className="button-primary" disabled={busy} onClick={()=>void connect(true)}>Create wallet</button><button disabled={busy} onClick={()=>void connect()}>Connect passkey</button></div><div className="divider"/><label htmlFor="view-address">Already have a wallet? View its public address</label><div className="inline-form"><input id="view-address" value={input} onChange={e=>setInput(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false}/><button disabled={!isAddress(input)} onClick={()=>void choose(input)}>View wallet</button></div><button className="button-text" onClick={()=>void choose(DEMO_SAFE)}>View the verified demo wallet</button></section>}
   </Shell>
 }

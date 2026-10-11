@@ -2,13 +2,15 @@ import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
 import { createServer } from 'node:http'
 import { EthSafeOperation, Safe4337Pack, PimlicoFeeEstimator } from '@safe-global/relay-kit'
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, parseAbi, zeroAddress, type Address, type Hash, type Hex } from 'viem'
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, parseAbi, zeroAddress, type Address, type Hash, type Hex } from 'viem'
 import { ENTRY_POINT, NFT_ADDRESS, PAYMASTER_ADDRESS, providerConfig } from '../lib/constants'
 import { RpcFailure } from '../lib/diagnostics'
 import { ENTRY_POINT_ABI, verifyReceipt } from '../lib/proof'
 import { diagnoseSponsorship, extractPaymaster, prepareSponsoredTransaction, validateSponsorResponse, type SponsorshipReads } from '../lib/sponsorship'
 import type { OperationRpc } from '../lib/operations'
 import { diagnosticMintTransaction } from '../lib/transactions'
+import {usdcTransfer} from '../lib/usdc'
+import {USDC_ADDRESS} from '../lib/product'
 
 // Synthetic fixtures only; the different address is from Pimlico's documented
 // v0.6 response example, not evidence about our live wallet or a trust allowlist.
@@ -70,6 +72,17 @@ const rpcWith = (value: unknown, observe?: (method: string, params: unknown[]) =
     callGasLimit: '0x13880', verificationGasLimit: '0x186a0', preVerificationGas: '0xdf55',
   }) as T, httpStatus: 200 }
 }
+
+test('USDC reuses the exact v0.6 sponsor and gas pipeline with review-bound transfer calldata',async()=>{
+  const transfer=usdcTransfer(safe,'0x2222222222222222222222222222222222222222','1.000001',2_000_000n)
+  const result=await prepareSponsoredTransaction(fixturePack(),safe,transfer.transaction,reads,undefined,rpcWith(response()))
+  assert.equal(result.report.valid,true)
+  assert.equal(result.report.gasTrace?.verificationAllowanceBps,12000)
+  const decoded=decodeFunctionData({abi:executeAbi,data:result.operation.toUserOperation().callData as Hex})
+  assert.deepEqual(decoded.args,[USDC_ADDRESS,0n,transfer.transaction.data,0])
+  const changed=fixturePack(props=>{props.userOperation.callData=encodeFunctionData({abi:executeAbi,functionName:'executeUserOp',args:[USDC_ADDRESS,0n,'0x095ea7b3',0]})})
+  await assert.rejects(prepareSponsoredTransaction(changed,safe,transfer.transaction,reads,undefined,rpcWith(response())),/SPONSORSHIP_INTENT_MISMATCH/)
+})
 
 test('regression: SDK v0.6 response differing from the estimation seed is validated and bound', async () => {
   assert.throws(() => { if (!response().paymasterAndData.toLowerCase().startsWith(PAYMASTER_ADDRESS.toLowerCase())) throw new Error('SPONSORSHIP_UNEXPECTED_PAYMASTER') }, /SPONSORSHIP_UNEXPECTED_PAYMASTER/)

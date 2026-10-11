@@ -8,7 +8,8 @@ import { verifyReceipt } from './proof'
 import { diagnose, scrubMessage, type Diagnostic } from './diagnostics'
 import { broadcastOperation, inspectOperation, isHash, pollOperation, rpcRequest, type BundlerReceipt, type PendingOperation } from './operations'
 import { extractPaymaster, type SponsorshipReads } from './sponsorship'
-import { assertCustomerSpendingAllowed } from './product'
+import { assertCustomerSpendingAllowed, tokenAbi, USDC_ADDRESS } from './product'
+import { validateUsdcIntent, verifyUsdcTransfer, reconcileBalance } from './usdc'
 export type { PendingOperation } from './operations'
 
 export const publicClient = createPublicClient({
@@ -128,7 +129,9 @@ export function loadPending(): PendingOperation | null {
     const data = JSON.parse(raw) as PendingOperation | null
     if (!data) return null
     if (!/^0x[a-fA-F0-9]{64}$/.test(data.userOperationHash) || !isAddress(data.safeAddress)
-      || !['mint', 'transfer'].includes(data.kind) || typeof data.description !== 'string') throw new Error('STORED_DATA')
+      || !['mint', 'transfer', 'usdc'].includes(data.kind) || typeof data.description !== 'string') throw new Error('STORED_DATA')
+    const usdcIntent=data.kind==='usdc'?validateUsdcIntent(data.usdcIntent):undefined
+    if(usdcIntent && usdcIntent.safe.toLowerCase()!==data.safeAddress.toLowerCase())throw new Error('STORED_DATA')
     if (data.paymasterAddress !== undefined && (!isAddress(data.paymasterAddress) || data.paymasterAddress.toLowerCase() === zeroAddress)) throw new Error('STORED_DATA')
     const states = ['prepared', 'broadcasting', 'accepted', 'included', 'rejected', 'failed', 'unknown']
     // Old records have no evidence of acceptance. Reload never resumes a send.
@@ -139,7 +142,7 @@ export function loadPending(): PendingOperation | null {
       : undefined
     return {
       userOperationHash: data.userOperationHash, safeAddress: data.safeAddress, paymasterAddress: data.paymasterAddress, kind: data.kind,
-      description: data.description, state, acceptance, createdAt: data.createdAt,
+      description: data.description, state, acceptance, createdAt: data.createdAt, usdcIntent,
       acknowledgement: data.acknowledgement && isHash(data.acknowledgement.hash)
         ? { hash: data.acknowledgement.hash, at: data.acknowledgement.at, httpStatus: data.acknowledgement.httpStatus } : undefined,
       transactionHash: isHash(data.transactionHash) ? data.transactionHash : undefined,
@@ -189,6 +192,25 @@ export async function verifyOperationInclusion(pending: PendingOperation, result
   if (!code || code === '0x') throw new Error('EVIDENCE_MISMATCH')
   const sponsorCode = await publicClient.getCode({ address: proof.paymaster, blockNumber: receipt.blockNumber })
   if (!sponsorCode || sponsorCode === '0x') throw new Error('EVIDENCE_MISMATCH')
+  if(pending.kind==='usdc') {
+    const intent=validateUsdcIntent(pending.usdcIntent)
+    proof.transfer=verifyUsdcTransfer(receipt,pending.userOperationHash,intent)
+    let reconciliation
+    try {
+      const addresses=[intent.safe,intent.recipient] as const
+      const [logs,...balances]=await Promise.all([
+        publicClient.getContractEvents({address:USDC_ADDRESS,abi:tokenAbi,eventName:'Transfer',fromBlock:receipt.blockNumber,toBlock:receipt.blockNumber,strict:true}),
+        ...addresses.flatMap(address=>[receipt.blockNumber-1n,receipt.blockNumber].map(blockNumber=>publicClient.readContract({address:USDC_ADDRESS,abi:tokenAbi,functionName:'balanceOf',args:[address],blockNumber}))),
+      ])
+      reconciliation={logs,balances}
+    }catch{/* Archive/log RPC support may be unavailable. The matching transfer event remains authoritative. */}
+    if(reconciliation) {
+      const transfers=reconciliation.logs.map(l=>({from:l.args.from,to:l.args.to,value:l.args.value}))
+      reconcileBalance(reconciliation.balances[0],reconciliation.balances[1],intent.safe,transfers)
+      reconcileBalance(reconciliation.balances[2],reconciliation.balances[3],intent.recipient,transfers)
+      proof.transfer.reconciliation='verified'
+    }
+  }
   return proof
 }
 

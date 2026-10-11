@@ -3,6 +3,8 @@ import { test } from 'node:test'
 import { PENDING_KEY, STORAGE_KEY } from '../lib/constants'
 import { diagnose, RpcFailure } from '../lib/diagnostics'
 import { archivePending, loadPending, savePending } from '../lib/wallet'
+import {usdcTransfer} from '../lib/usdc'
+import {DEMO_SAFE} from '../lib/product'
 
 test('legacy records stay unresolved and manual archive preserves the passkey and attempt diagnostics', () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
@@ -38,6 +40,12 @@ test('legacy records stay unresolved and manual archive preserves the passkey an
     assert.equal(archived[0].submissionError.rpcCode, -32507)
     assert.equal(archived[0].lastError.message, 'CONFIRMATION_TIMEOUT')
     assert.equal(values.get(PENDING_KEY), 'null')
+    const intent=usdcTransfer(DEMO_SAFE,'0x2222222222222222222222222222222222222222','0.123456',1_000_000n).intent
+    savePending({...legacy,kind:'usdc',safeAddress:DEMO_SAFE,usdcIntent:intent,state:'accepted',acceptance:'yes'})
+    assert.deepEqual(loadPending()?.usdcIntent,intent)
+    assert.equal(loadPending()?.state,'accepted')
+    savePending({...loadPending()!,usdcIntent:{...intent,amount:'0'}})
+    assert.throws(loadPending,/STORED_DATA/)
   } finally {
     if (previous) Object.defineProperty(globalThis, 'localStorage', previous)
     else Reflect.deleteProperty(globalThis, 'localStorage')
