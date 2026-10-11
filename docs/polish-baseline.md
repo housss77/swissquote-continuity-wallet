@@ -49,3 +49,27 @@ independently rechecked the published receipts, matching module events, actual
 252-second waiting period, recovered sponsored operation and NFT ownership.
 Current ownership, guardian configuration and the original Safe's baseline
 nonces passed. USDC remains zero; no live USDC success is claimed.
+
+## Final regression and design review
+
+Final production build and standalone TypeScript passed. Unit tests: **75**;
+server tests: **5**; browser tests against production: **29**, all passing.
+The existing **29** isolated local-fork recovery checks passed during this run.
+No lint script/configuration exists; no lint success is asserted. `npm audit`
+reported six low findings, no moderate/high/critical findings; dependencies were
+not upgraded. Secret scan covered working files, the index, built client chunks
+and reachable Git history with zero findings.
+
+Rendered QA used desktop 1440×900, laptop 1280×800, mobile 390×844 and 360×800.
+First pass inspected wallet hierarchy and mobile navigation. Second pass
+inspected transfer spacing, historical demo labeling and recovery status. Final
+refinement tightened form margins, waited for chain reads before screenshots,
+and fixed the unlimited-approval integer overflow. The regression now asserts
+that warning view fits 360 pixels. Final screenshots are local, ignored artifacts
+under `test-results/design-final/`; regenerate with `npm run demo:screenshots`.
+These screenshots use public live state, not the real customer's Chrome profile.
+
+Read-only readiness at **2026-10-11T05:03:36.470Z** passed all recovered/original
+Safe and historical-evidence checks. USDC remained zero; live USDC and its
+sponsorship eligibility remain unverified. No production bank/guardian controls,
+legal approval or new public-chain transaction was asserted.

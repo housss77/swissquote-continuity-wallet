@@ -141,6 +141,12 @@ records remain intact; without a recorded expected sponsor, verification can est
 only the nonzero sponsor in the independently matching onchain event.
 See [Pimlico's v0.6 sponsorship schema](https://docs.pimlico.io/references/paymaster/verifying-paymaster/endpoints).
 
+## Historical spike instructions — advanced lab
+
+The older diagnostic/retry instructions below describe the accepted spike. Their
+technical controls now live at `/lab`. Do not repeat them on either preserved
+acceptance wallet. For the one new human-approved USDC test, use
+[USDC acceptance](docs/usdc-acceptance.md) and [morning readiness](docs/demo-readiness.md).
 ### Preparation-only sponsorship diagnostic
 
 In the **same Chrome profile and localhost origin** that holds your saved public
@@ -220,7 +226,7 @@ cannot establish a plausible budget, stop this Safe integration within the curre
 constraints and recommend an EOA + SLIP-39 fallback for a separate task; do not
 implement it or introduce another workaround here.
 
-After the updated app starts, refresh **http://localhost:3000** with Ctrl+R in the
+After the updated app starts, refresh **http://localhost:3000/lab** with Ctrl+R in the
 existing Chrome profile and click **Diagnose NFT sponsorship (no signing or sending)**
 exactly once. Copy the public report for review. Leave Authenticate, Sign and send,
 Check pending and Preserve attempt untouched for this diagnostic. The quote is
@@ -275,7 +281,7 @@ by the SDK sponsorship request when the user prepares an operation.
 
 ## Exact manual browser verification
 
-1. Run the app and open **http://localhost:3000** in Chrome/Edge. Confirm Ethereum Sepolia
+1. Run the app and open **http://localhost:3000/lab** in Chrome/Edge. Confirm Ethereum Sepolia
    and **11155111**. Have Windows Hello, an ES256-capable security key, or a supported phone ready.
 2. Click **Create passkey and initialize Safe** and approve the authenticator creation
    prompt. No wallet extension or externally owned private key is required.
@@ -344,7 +350,7 @@ The missing policy ID is a configuration blocker, not a verified cause of the ol
    resolve policy errors before retrying (or confirm the policy in Dashboard if only
    Account API access is disabled). Stop/restart the local app after changing public
    configuration; production requires `npm run build` again.
-2. Open **http://localhost:3000** in the same Chrome/Edge profile. Do not clear browser
+2. Open **http://localhost:3000/lab** in the same Chrome/Edge profile. Do not clear browser
    data or create a passkey. Click **Authenticate and connect Safe**, approve the original
    credential, and verify the existing address
    `0x6f7c9faba9B6039255f2301935D891ffE6065e8C`. Stop if it differs.

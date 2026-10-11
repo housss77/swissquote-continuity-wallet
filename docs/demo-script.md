@@ -60,7 +60,7 @@ are simulated; the underlying signatures and transactions are real.
 Never call a historical action “just submitted,” claim a live USDC transfer
 without its matching receipt/logs, or equate a new browser profile with actual
 loss of synced passkeys.
-# Jury questions: precise answers
+## Jury questions: precise answers
 
 **Why is this self-custody?** Daily spending needs the customer passkey, not a Swissquote spending key. Explain the qualification: any two recovery guardians can replace that owner after the delay. This is customer spending control with collective social recovery, not unconditional exclusive control forever.
 

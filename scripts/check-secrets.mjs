@@ -40,7 +40,28 @@ function scanClient(dir) {
 scanClient('.next/static')
 const tracked=execFileSync('git',['ls-files','.env','.env.local','.env.*'],{encoding:'utf8'}).trim().split(/\r?\n/).filter(v=>v && v!=='.env.example')
 findings.push(...tracked)
+let historyBlobs=0
+if(process.argv.includes('--history')) {
+  // Scan every reachable blob in the history being pushed, without printing
+  // blob contents, matched values, credential URLs or environment values.
+  const objects=execFileSync('git',['rev-list','--objects','HEAD'],{encoding:'utf8',maxBuffer:20*1024*1024}).trim().split('\n')
+  const objectNames=new Map(objects.map(line=>{const space=line.indexOf(' ');return [line.slice(0,space<0?undefined:space),space<0?'':line.slice(space+1)]}))
+  const output=execFileSync('git',['cat-file','--batch'],{input:[...objectNames.keys()].join('\n')+'\n',maxBuffer:256*1024*1024})
+  let offset=0
+  while(offset<output.length) {
+    const end=output.indexOf(10,offset),[oid,type,size]=output.subarray(offset,end).toString('utf8').split(' ')
+    if(end<0 || !/^\d+$/.test(size))throw new Error('History scan could not parse Git objects')
+    const length=Number(size),data=output.subarray(end+1,end+1+length)
+    if(type==='blob') {
+      historyBlobs++
+      const contents=data.toString('utf8'),name=objectNames.get(oid)||'unnamed blob'
+      if(values.some(s=>contents.includes(s.value)) || /-----BEGIN (?:EC |RSA |OPENSSH )?PRIVATE KEY-----/.test(contents))findings.push(`history:${oid}:${name}`)
+      if(/(^|\/)(?:\.env(?:\..*)?|\.recovery-data\/.*)$/.test(name) && name!=='.env.example')findings.push(`history:${name}`)
+    }
+    offset=end+1+length+1
+  }
+}
 const lines=fs.readFileSync('.env.example','utf8').trim().split(/\r?\n/)
 if(lines.some(line=>!/^([A-Z][A-Z0-9_]*)=$/.test(line)))findings.push('.env.example')
-console.log(JSON.stringify({checkedFiles:names.length,serverSecretsChecked:privateValues.length,clientBundleScanned:fs.existsSync('.next/static'),findings:[...new Set(findings)]},null,2))
+console.log(JSON.stringify({checkedFiles:names.length,historyBlobs,serverSecretsChecked:privateValues.length,clientBundleScanned:fs.existsSync('.next/static'),findings:[...new Set(findings)]},null,2))
 if(findings.length)process.exitCode=1
