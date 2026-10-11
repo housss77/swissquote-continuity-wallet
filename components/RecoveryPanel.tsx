@@ -36,7 +36,7 @@ export default function RecoveryPanel() {
   const locked=useRef(false)
   useEffect(()=>{try {setAttempt(loadRecoveryAttempt())} catch {setError('Saved recovery attempt cannot be read. Preserve browser data; do not retry.')}},[])
   const cleanError=(e:unknown)=>diagnose(e,'prepare','no').message
-  async function run(work:()=>Promise<void>) {
+  async function run(work:()=>Promise<unknown>) {
     if (locked.current) return
     locked.current=true;setBusy(true);setError('')
     try {await work()} catch(e){setError(cleanError(e));setStatus('Action not verified as successful. No automatic retry.')} finally {locked.current=false;setBusy(false)}
@@ -108,6 +108,8 @@ export default function RecoveryPanel() {
     setStatus('Simulation passed. Approve the exact sponsored installation or repair with the spending passkey.')
     const proof=await sendPreparedRecovery(pack,prepared.operation,state.safe,prepared.paymasterAddress,description,setAttempt)
     if (proof) {setConfirmed(proof.transactionHash);await refresh()}
+    else setStatus('Sponsored action is rejected, failed or unresolved. Check the preserved submission diagnostic and operation before any manual retry.')
+    return proof
   }
   async function install() {
     if (!state || !backup || !bank)return
@@ -117,7 +119,7 @@ export default function RecoveryPanel() {
     await verifyEnrollmentProof(publicClient,enrollmentPreview(state,backup.credential.signer,bank,thirdAddress),thirdProof)
     if (state.enabled || state.guardians.length!==0 || state.threshold!==0n)throw new Error('RECOVERY_SETUP_REQUIRES_EMPTY_MODULE_STATE')
     if ([backup.credential.signer,bank,thirdAddress].some(g=>state.owners.some(o=>o.toLowerCase()===g.toLowerCase())))throw new Error('RECOVERY_GUARDIAN_IS_SPENDING_OWNER')
-    await ownerCall(enrollmentCalls(state.module,{safe:state.safe,backup:backup.credential,bank,third:thirdAddress}),'Atomic recovery enrollment; three guardians; threshold two')
+    if (!await ownerCall(enrollmentCalls(state.module,{safe:state.safe,backup:backup.credential,bank,third:thirdAddress}),'Atomic recovery enrollment; three guardians; threshold two'))return
     const current=await recoveryState(publicClient,state.safe)
     if (!current.protected || ![backup.credential.signer,bank,thirdAddress].every(a=>current.guardians.some(g=>g.toLowerCase()===a.toLowerCase())))throw new Error('RECOVERY_ENROLLMENT_UNCONFIRMED')
     await publish(backup)
@@ -179,8 +181,8 @@ export default function RecoveryPanel() {
     const index=state.guardians.findIndex(g=>g.toLowerCase()===savedBackup.signer.toLowerCase())
     if (index<0)throw new Error('RECOVERY_BACKUP_NOT_REGISTERED')
     const previous=index===0?'0x0000000000000000000000000000000000000001':state.guardians[index-1]
-    await ownerCall([{to:state.module,value:'0',data:recoveryCall('revokeGuardianWithThreshold',[previous,savedBackup.signer,2n])},
-      {to:state.module,value:'0',data:recoveryCall('addGuardianWithThreshold',[backup.credential.signer,2n])}],'Atomic replacement of backup guardian; threshold remains two')
+    if (!await ownerCall([{to:state.module,value:'0',data:recoveryCall('revokeGuardianWithThreshold',[previous,savedBackup.signer,2n])},
+      {to:state.module,value:'0',data:recoveryCall('addGuardianWithThreshold',[backup.credential.signer,2n])}],'Atomic replacement of backup guardian; threshold remains two'))return
     await publish(backup);setReadiness(false)
   }
   async function testNewSigner() {
@@ -241,6 +243,8 @@ export default function RecoveryPanel() {
     {relay && <section><h2>Relayer submission</h2><p>{relay.action} · {relay.state}; confirmation pending verification.</p><a href={`${EXPLORER}/tx/${relay.hash}`} target="_blank" rel="noreferrer">{relay.hash}</a>
       <button disabled={busy} onClick={()=>run(checkRelay)}>Check transaction receipt and recovery state</button></section>}
     {attempt && <section><h2>Preserved sponsored recovery attempt</h2><p>{attempt.description}</p><p>{attempt.state} · bundler acceptance: {attempt.acceptance}</p><code>{attempt.userOperationHash}</code>
+      {attempt.submissionError && <dl><dt>Submission stage</dt><dd>{attempt.submissionError.stage}</dd><dt>HTTP status</dt><dd>{attempt.submissionError.httpStatus ?? 'Unavailable'}</dd>
+        <dt>RPC/SDK error code</dt><dd>{attempt.submissionError.rpcCode ?? attempt.submissionError.sdkCode ?? 'Unavailable'}</dd><dt>Sanitized submission error</dt><dd>{attempt.submissionError.message}</dd></dl>}
       {attempt.lastError && <p>{attempt.lastError.message}</p>}<button disabled={busy} onClick={()=>run(async()=>{const proof=await checkRecoveryAttempt(setAttempt);if(proof){setConfirmed(proof.transactionHash);await refresh()}})}>Check sponsored operation</button>
       <button disabled={busy || !['included','rejected','failed'].includes(attempt.state)} onClick={()=>run(async()=>{archiveRecoveryAttempt();setAttempt(null)})}>Preserve completed attempt and enable manual next operation</button></section>}
     {confirmed && <p className="success">Verified Sepolia transaction: <a href={`${EXPLORER}/tx/${confirmed}`} target="_blank" rel="noreferrer">{confirmed}</a>. Review its verified postconditions above.</p>}

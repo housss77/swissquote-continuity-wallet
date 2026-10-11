@@ -325,6 +325,21 @@ test('pinned Relay Kit gas-estimation pipeline calls the observed adjustment onc
   assert.ok(methods.every(method => ['eth_chainId', 'pimlico_getUserOperationGasPrice'].includes(method)))
 })
 
+test('existing Safe estimation must bind the SDK dummy contract signature to its actual passkey owner',async()=> {
+  type Options=ConstructorParameters<typeof Safe4337Pack>[0]
+  for(const owner of ['0x94a4F6affBd8975951142c3999aEAB7ecee555c2',safe]) {
+    let estimatedSignature=''
+    const sdk=new Safe4337Pack({protocolKit:{getThreshold:async()=>1} as Options['protocolKit'],
+      bundlerClient:{send:async(method:string,params:Array<{signature:string}>)=>{assert.equal(method,'eth_estimateUserOperationGas');estimatedSignature=params[0].signature;return {callGasLimit:'0x100',verificationGasLimit:'0x200',preVerificationGas:'0x300'}}} as unknown as Options['bundlerClient'],
+      bundlerUrl:'http://localhost:1',chainId:11155111n,entryPointAddress:ENTRY_POINT,safe4337ModuleAddress:safe,safeWebAuthnSharedSignerAddress:owner})
+    await sdk.getEstimateFee({safeOperation:fixtureOperation(),feeEstimator:{setupEstimation:async()=>({}),adjustEstimation:async()=>({})}})
+    // SDK prepends two uint48 validity fields, then the Safe contract-signature
+    // static word. This is the owner whose verification gas is exercised.
+    assert.equal(estimatedSignature.slice(26+24,26+64).toLowerCase(),owner.slice(2).toLowerCase())
+    assert.ok(estimatedSignature.length>26+130)
+  }
+})
+
 test('measured gas regression: bounded allowance replaces stock 4x without changing the fresh quote or serialization', async () => {
   // Public measurements from the user's preparation-only probe. Replayed in an
   // isolated fixture; this test does not contact Pimlico or submit an operation.

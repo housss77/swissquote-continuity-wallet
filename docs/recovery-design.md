@@ -23,6 +23,14 @@ reported **0.0.1** (`0x949d01d424bE050D09C16025dd007CB59b3A8c66`, 180 seconds;
 The pinned AbstractionKit example also used the old version/domain and ABI.
 Calling it unchanged would omit the explicit v0.2.0 nonce. No SDK migration is made.
 
+Relay Kit 3.1.0 also leaves its passkey dummy-signature owner unset when initialized
+with `options.safeAddress`. We resolve the current passkey through Protocol Kit,
+verify it is the sole owner at threshold one, and pass that address through the
+supported `customContracts.safeWebAuthnSharedSignerAddress` override. In the
+existing-Safe path this value feeds the SDK estimation signature; it does not
+change the Safe or install a shared signer. This also covers recovered standalone
+proxies. Gas estimates must exercise the actual contract-owner verification path.
+
 `artifact.json` records SHA-256 source hashes and unmodified compiled bytecode.
 Compiler: solc 0.8.20, optimizer 1,000,000 runs, viaIR; dependencies OpenZeppelin
 4.9.6 and Safe contracts 1.4.1. Recompilation must reproduce the recorded artifact;
@@ -216,6 +224,11 @@ It records public evidence in ignored `.recovery-data/live-recovery-test.json` a
 refuses to rerun if that file exists. Investigate a failure before any new test;
 do not delete the record to force a retry. The resulting Safe is disposable: its
 virtual credentials/worker are destroyed at test shutdown. Never fund it with real assets.
+An optional explicit public run label preserves earlier records when a reviewed
+new disposable test is authorized. Setting `RECOVERY_KEEP_TEST_BROWSER=1` keeps a
+failed isolated test session available on localhost CDP port 9238 for diagnosis;
+it performs no retries. Type `stop` in that test terminal to close it. This test-only
+debug endpoint must never be used with a real customer profile or public hosting.
 
 ## Threat model and remaining issues
 

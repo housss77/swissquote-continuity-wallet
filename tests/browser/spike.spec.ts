@@ -17,6 +17,14 @@ test('anonymous demo bank approval is rejected before any signing or RPC action'
   expect(reply.body.error).toBe('RECOVERY_OPERATOR_UNAUTHORIZED')
 })
 
+test('recovery preserves original RPC submission errors instead of claiming enrollment success',async({page})=>{
+  await page.addInitScript(()=>localStorage.setItem('continuity-recovery-operations-v1',JSON.stringify({kind:'recovery',description:'Rejected enrollment fixture',safeAddress:'0x1111111111111111111111111111111111111111',userOperationHash:`0x${'11'.repeat(32)}`,state:'rejected',acceptance:'no',submissionError:{stage:'submit',httpStatus:200,rpcCode:-32500,message:'AA23 verification reverted',acceptance:'no'}})))
+  await page.goto('/recovery')
+  await expect(page.getByText('AA23 verification reverted',{exact:true})).toBeVisible()
+  await expect(page.getByText('-32500',{exact:true})).toBeVisible()
+  await expect(page.getByText('Owner rotation confirmed',{exact:false})).toHaveCount(0)
+})
+
 test('startup shows Sepolia and never shows a fabricated success', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Swissquote Continuity Wallet', exact: true })).toBeVisible()

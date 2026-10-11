@@ -62,6 +62,7 @@ async function isolatedCustomer() {
   return {context,page}
 }
 async function uiClick(page,name) {
+  report.currentStage=stage;report.lastAction={name,at:new Date().toISOString()};await persist()
   await expect(page.getByRole('button',{name,exact:true})).toBeEnabled({timeout:30000})
   await page.getByRole('button',{name,exact:true}).click() // ONE explicit click; no retries.
   await page.waitForTimeout(300)
@@ -167,7 +168,8 @@ async function main() {
   assert.ok(new Set([bank,third,relayer].map(a=>a.toLowerCase())).size===3)
   await build({entryPoints:['tests/recovery/browser.js'],bundle:true,platform:'browser',format:'iife',inject:['tests/recovery/polyfills.js'],
     alias:{buffer:path.resolve('node_modules/buffer/index.js'),assert:path.resolve('node_modules/assert/build/assert.js'),stream:path.resolve('node_modules/stream-browserify/index.js'),events:path.resolve('node_modules/events/events.js')},outfile:'.dist/recovery-test/browser.js'})
-  await startServer();browser=await chromium.launch({channel:'chrome',headless:true})
+  await startServer();browser=await chromium.launch({channel:'chrome',headless:true,
+    ...(process.env.RECOVERY_KEEP_TEST_BROWSER==='1'?{args:['--remote-debugging-port=9238','--remote-debugging-address=127.0.0.1']}:{})})
   const initial=await isolatedCustomer();customerContext=initial.context;customerPage=initial.page
   await customerPage.goto('http://localhost:3000')
   stage='create disposable spending passkey'
@@ -288,8 +290,19 @@ async function main() {
   await persist();console.log(json(report))
 }
 main().catch(async e=>{
+  const page=freshPage || customerPage
+  if(page && !page.isClosed()) {
+    const attempt=await page.evaluate(()=>JSON.parse(localStorage.getItem('continuity-recovery-operations-v1') || 'null')).catch(()=>null)
+    if(attempt)report.failedAttempt={state:attempt.state,acceptance:attempt.acceptance,safeAddress:attempt.safeAddress,userOperationHash:attempt.userOperationHash,transactionHash:attempt.transactionHash,acknowledgement:attempt.acknowledgement,submissionError:attempt.submissionError,lastError:attempt.lastError}
+  }
   let sanitized=String(e.shortMessage || e.message || 'Live recovery failed').replace(/https?:\/\/[^\s]+/g,'[URL]')
   for(const [name,value] of Object.entries(process.env))if(/PRIVATE_KEY|TOKEN|API_KEY|POLICY_ID|RPC_URL/.test(name) && value?.length>8)sanitized=sanitized.split(value).join('[REDACTED]')
   sanitized=sanitized.slice(0,700)
   report.complete=false;report.failure={stage,error:sanitized};await persist();console.log(json({verifiedComplete:false,stage,error:sanitized,publicEvidence:evidenceFile}));process.exitCode=1
-}).finally(async()=>{await browser?.close();thirdWorker?.kill();await stopServer()})
+}).finally(async()=>{
+  if(browser && !report.complete && process.env.RECOVERY_KEEP_TEST_BROWSER==='1') {
+    console.log('Failed disposable test browser retained for diagnosis on localhost:9238. No automatic retry. Type stop to close its isolated contexts.')
+    await new Promise(resolve=>{process.stdin.setEncoding('utf8');process.stdin.on('data',value=>{if(value.trim()==='stop')resolve()})})
+  }
+  await browser?.close();thirdWorker?.kill();await stopServer()
+})

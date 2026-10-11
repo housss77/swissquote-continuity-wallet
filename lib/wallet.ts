@@ -1,4 +1,4 @@
-import type { PasskeyArgType } from '@safe-global/protocol-kit'
+import Safe, { type PasskeyArgType } from '@safe-global/protocol-kit'
 import { Safe4337Pack } from '@safe-global/relay-kit'
 import { userOperationToHexValues } from '@safe-global/relay-kit/dist/src/packs/safe-4337/utils'
 import { createPublicClient, getAddress, http, isAddress, parseAbi, zeroAddress, type Address, type Hash, type Hex } from 'viem'
@@ -44,12 +44,22 @@ export async function initializeWallet(passkey: PasskeyArgType, existingSafe?: A
     throw new Error('BUNDLER_ENTRYPOINT_UNSUPPORTED')
   }
   const config = providerConfig()
+  let estimationOwner:Address|undefined
+  if (existingSafe) {
+    const existing=await Safe.init({provider:RPC_URL,signer:passkey,safeAddress:existingSafe})
+    const [owners,threshold,signer]=await Promise.all([existing.getOwners(),existing.getThreshold(),existing.getSafeProvider().getSignerAddress()])
+    if (threshold!==1 || owners.length!==1 || !signer || owners[0].toLowerCase()!==signer.toLowerCase())throw new Error('OWNER_MISMATCH')
+    estimationOwner=getAddress(signer)
+  }
   const pack = await Safe4337Pack.init({
     provider: RPC_URL,
     signer: passkey,
     bundlerUrl: config.bundlerUrl,
     safeModulesVersion: '0.2.0',
-    customContracts: { entryPointAddress: ENTRY_POINT },
+    // In Relay Kit 3.1.0 the existing-Safe branch never initializes this
+    // dummy-signature address. Its supported override must name the verified
+    // current contract owner, including a recovered standalone passkey proxy.
+    customContracts: { entryPointAddress: ENTRY_POINT, ...(estimationOwner?{safeWebAuthnSharedSignerAddress:estimationOwner}:{}) },
     paymasterOptions: {
       isSponsored: true,
       paymasterUrl: config.paymasterUrl,
