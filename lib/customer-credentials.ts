@@ -14,6 +14,8 @@ export function createdPasskey():PasskeyArgType|null {
   return {rawId:p.rawId,coordinates:{x:p.coordinates.x,y:p.coordinates.y}}
 }
 export async function currentPasskey(safe:Address):Promise<PasskeyArgType> {
+  const session=await (await import('./auth-client')).customerSession()
+  if(session?.safe && sameAddress(session.safe,safe))return session.passkey
   const owners=await productClient.readContract({address:safe,abi:safeAbi,functionName:'getOwners'}) as Address[]
   const draft=JSON.parse(localStorage.getItem('continuity-recovery-public-draft-v1') || 'null')
   let replacement:PublicCredential|null=draft && sameAddress(draft.safe,safe)?draft.replacement?.credential??null:null

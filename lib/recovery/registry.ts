@@ -6,7 +6,8 @@ import { address } from './contracts'
 import { recoveryState } from './onchain'
 import { validateCredential, verifyMetadataProof } from './passkey'
 import type { PublicCredential } from './types'
-const root=path.resolve('.recovery-data')
+import {serverDataRoot} from '../server-data'
+const root=serverDataRoot()
 const filename=(safe:string)=>path.join(root,`${address(safe).toLowerCase()}.json`)
 type PublicRecord={safe:string;module:string;credential:PublicCredential;signature:Hex}
 export async function savePublicMetadata(client:PublicClient,record:PublicRecord) {

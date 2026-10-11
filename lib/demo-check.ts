@@ -2,7 +2,7 @@ import {decodeEventLog,parseAbi,type Address,type Hash} from 'viem'
 import evidence from './demo-evidence.json'
 import {productClient,readWallet,DEMO_SAFE,ORIGINAL_SAFE,sameAddress} from './product'
 import {ENTRY_POINT_ABI,verifyReceipt} from './proof'
-import {ENTRY_POINT} from './constants'
+import {ENTRY_POINT,providerConfig} from './constants'
 import {safeAbi} from './recovery/contracts'
 import {recoveryReceiptIntent} from './recovery/evidence'
 export type ReadinessItem={name:string;status:'PASS'|'WARN'|'FAIL';detail:string}
@@ -40,6 +40,7 @@ export async function demoReadiness():Promise<DemoReadiness> {
   checks.push({name:'Official test USDC funding',status:wallet.usdc===null?'FAIL':wallet.usdc>0n?'PASS':'WARN',detail:wallet.usdc===null?'Token metadata or balance unavailable.':wallet.usdc>0n?'Test USDC available. Human confirmation is still required.':'Zero USDC. Fund the disposable Safe with Circle faucet tokens.'})
  }catch(e){const mismatch=e instanceof Error && e.message==='HISTORICAL_RECEIPT_MISMATCH';checks.push({name:'Live RPC verification',status:mismatch?'FAIL':'WARN',detail:mismatch?'Historical receipt/event mismatch. Investigate before presenting it as refreshed.':'Unable to finish live reads. Stored verified evidence remains historical; live state is unavailable.'})}
  checks.push({name:'USDC live acceptance',status:'WARN',detail:'A real human passkey signature and confirmed matching USDC Transfer event are required. No USDC success is claimed by this readiness check.'})
- checks.push({name:'Sponsorship configuration',status:process.env.NEXT_PUBLIC_PIMLICO_API_KEY && process.env.NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID?'PASS':'WARN',detail:'Presence check only. Paymaster permission for a fresh USDC operation is checked during preparation, not inferred from configuration.'})
+ let configured=false;try{providerConfig(true);configured=true}catch{/* Report presence without leaking provider secrets. */}
+ checks.push({name:'Sponsorship configuration',status:configured?'PASS':'WARN',detail:'Presence check only. Paymaster permission for a fresh USDC operation is checked during preparation, not inferred from configuration.'})
  return {status:checks.some(c=>c.status==='FAIL')?'FAIL':checks.some(c=>c.status==='WARN')?'WARN':'PASS',checkedAt,checks,usdcBalance,ethBalance}
 }

@@ -1,3 +1,4 @@
+import {isRpcFixture} from './rpc-fixture'
 import { test, expect } from '@playwright/test'
 import { decodeFunctionData, encodeFunctionResult, domainSeparator, getAddress, hashTypedData, type Address } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
@@ -20,7 +21,7 @@ test('replacement refresh preserves the new signer and guardian file loading inv
   const abi=[...safeAbi,...recoveryAbi,...factoryAbi]
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url())
-    if(url.hostname==='localhost') {
+    if(!isRpcFixture(route.request())) {
       if(url.pathname==='/api/recovery') {
         if(request.method()==='POST') {expect(request.postDataJSON().action).toBe('publish_metadata');return route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:'RECOVERY_INVALID_METADATA_PROOF'})})}
         return route.fulfill({contentType:'application/json',body:JSON.stringify({bank:guardians[1],backup:null,replacement:previous,transactions:[]} )})
@@ -70,7 +71,7 @@ test('replacement refresh preserves the new signer and guardian file loading inv
   await expect(approve).toBeEnabled()
   let releaseRead:()=>void=()=>{}
   heldChainRead=new Promise(resolve=>{releaseRead=resolve})
-  const pendingRead=page.waitForRequest(request=>{try{return new URL(request.url()).hostname!=='localhost' && request.postDataJSON()?.method==='eth_chainId'}catch{return false}})
+  const pendingRead=page.waitForRequest(request=>{try{return isRpcFixture(request) && request.postDataJSON()?.method==='eth_chainId'}catch{return false}})
   await upload.setInputFiles({name:'new-invalid.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({...intent,newOwner:guardians[0]}))})
   await pendingRead
   try {await expect(approve).toHaveCount(0)}finally{releaseRead();heldChainRead=null}
@@ -110,7 +111,7 @@ test('guardian selects the announced wallet and distinguishes chain, authorizati
   const abi=[...safeAbi,...recoveryAbi]
   let broadcasts=0
   await page.route('**/*',async route=>{
-    if(new URL(route.request().url()).hostname==='localhost')return route.continue()
+    if(!isRpcFixture(route.request()))return route.continue()
     const body=route.request().postDataJSON()
     let result:unknown
     if(body.method==='eth_chainId')result='0xaa36a7'
@@ -172,7 +173,7 @@ test('backup deployment explains missing operator and server rejection without s
   let posts=0,broadcasts=0,apiError='RECOVERY_OPERATOR_UNAUTHORIZED'
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url())
-    if(url.hostname==='localhost') {
+    if(!isRpcFixture(route.request())) {
       if(url.pathname!=='/api/recovery')return route.continue()
       if(request.method()==='POST') {
         posts++;expect(request.postDataJSON().action).toBe('deploy_credential')
@@ -233,7 +234,7 @@ test('enrollment import shows the verified signer and blocks malformed, stale an
   let posts=0,broadcasts=0,holdSignature:Promise<void>|null=null
   await page.route('**/*',async route=>{
     const req=route.request(),url=new URL(req.url())
-    if(url.hostname==='localhost'){
+    if(!isRpcFixture(route.request())){
       if(url.pathname!=='/api/recovery')return route.continue()
       if(req.method()==='POST'){posts++;throw Error('IMPORT_MUST_NOT_POST')}
       return route.fulfill({contentType:'application/json',body:JSON.stringify({bank,backup:null,replacement:null,transactions:[]})})
@@ -338,7 +339,7 @@ test('virtual authenticator stores public metadata even when the network fails',
   // No successful blockchain response is mocked and no operation is broadcast.
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
-    if (url.hostname === 'localhost') await route.continue()
+    if (!isRpcFixture(route.request())) await route.continue()
     else await route.fulfill({ status: 503, body: 'offline test' })
   })
   const cdp = await context.newCDPSession(page)
@@ -382,7 +383,7 @@ test('read-only checks preserve submission diagnostics and never broadcast', asy
     }))
   })
   await page.route('**/*', async route => {
-    if (new URL(route.request().url()).hostname === 'localhost') return route.continue()
+    if (!isRpcFixture(route.request())) return route.continue()
     const body = route.request().postDataJSON() as { id: number; method: string }
     if (body.method === 'eth_sendUserOperation') broadcasts++
     const result = body.method === 'eth_chainId' ? '0xaa36a7' : body.method === 'pimlico_getUserOperationStatus' ? { status: 'not_found', transactionHash: null } : null
@@ -412,7 +413,7 @@ test('preparation diagnostic failure cannot prompt a passkey, broadcast, or chan
     Object.defineProperty(navigator.credentials, 'create', { value: async () => { throw new Error('Preparation must never create a passkey') } })
   })
   await page.route('**/*', async route => {
-    if (new URL(route.request().url()).hostname === 'localhost') return route.continue()
+    if (!isRpcFixture(route.request())) return route.continue()
     const body = route.request().postDataJSON() as { method?: string }
     if (body?.method === 'eth_sendUserOperation') broadcasts++
     await route.fulfill({ status: 503, body: 'offline preparation fixture' })

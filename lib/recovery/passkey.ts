@@ -5,9 +5,10 @@ import { RPC_URL, assertSepolia } from '../constants'
 import { erc1271Abi, factoryAbi, P256_VERIFIER, SIGNER_FACTORY, SHARED_SIGNER, sharedSignerAbi, address } from './contracts'
 import type { PublicCredential, RecoveryIntent, GuardianApproval } from './types'
 import { intentHash, verifyApprovals } from './signatures'
+import { validPasskeyRp } from '../app-origin'
 
 export function validateCredential(v:PublicCredential):PublicCredential {
-  if (!v || !['customer_backup','replacement'].includes(v.role) || v.rpId!=='localhost'
+  if (!v || !['customer_backup','replacement'].includes(v.role) || !validPasskeyRp(v.rpId)
     || !/^(?:[a-fA-F0-9]{2}){16,1024}$/.test(v.passkey?.rawId || '')
     || !/^0x[a-fA-F0-9]{64}$/.test(v.passkey?.coordinates?.x || '') || !/^0x[a-fA-F0-9]{64}$/.test(v.passkey?.coordinates?.y || '')
     || v.passkey.customVerifierAddress) throw new Error('RECOVERY_INVALID_PUBLIC_CREDENTIAL')
@@ -39,7 +40,7 @@ export async function verifyFreshCredential(client:PublicClient,safe:Address,own
 }
 export async function createRecoveryCredential(client:PublicClient,role:PublicCredential['role'],existing?:PasskeyArgType):Promise<PublicCredential> {
   assertPasskeySupport()
-  if (location.hostname!=='localhost') throw new Error('RECOVERY_RP_UNSUPPORTED')
+  if (!validPasskeyRp(location.hostname)) throw new Error('RECOVERY_RP_UNSUPPORTED')
   const credential=await navigator.credentials.create({publicKey:{
     rp:{name:'Swissquote Continuity Wallet',id:location.hostname},
     challenge:crypto.getRandomValues(new Uint8Array(32)),

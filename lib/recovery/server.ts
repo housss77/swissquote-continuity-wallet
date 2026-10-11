@@ -13,6 +13,8 @@ import { recoveryState, verifyModule } from './onchain'
 import { metadataDigest, verifyCredentialBinding, verifyMetadataProof, verifyFreshCredential } from './passkey'
 import { intentHash, typedIntent, validateIntent, verifyApprovals } from './signatures'
 import type { GuardianApproval, PublicCredential, RecoveryIntent } from './types'
+import {checkAppOrigin} from '../app-origin'
+import {serverDataRoot} from '../server-data'
 
 export const recoveryClient=createPublicClient({chain:sepolia,transport:http(RPC_URL,{timeout:15000,retryCount:0})})
 const secretAccount=(key:string|undefined)=>{
@@ -34,7 +36,7 @@ export function allowedSafe(value:string):Address {
 const attempts=new Map<string,{count:number;until:number}>()
 export function checkBrowserOrigin(request:Request) {
   const origin=request.headers.get('origin'),url=new URL(request.url)
-  if (url.hostname!=='localhost' || origin!==url.origin) throw new Error('RECOVERY_ORIGIN_REJECTED')
+  try {checkAppOrigin(request)} catch {throw new Error('RECOVERY_ORIGIN_REJECTED')}
   const previous=attempts.get('operator'),now=Date.now()
   const slot=previous && previous.until>now ? previous : {count:0,until:now+60000}
   attempts.set('operator',slot)
@@ -64,8 +66,8 @@ export async function institutionalApproval(input:unknown,verifiedDemoIdentity:b
   return approval
 }
 type RelayRecord={hash:Hash;state:'broadcasting'|'accepted'|'unknown';safe:Address;action:string;createdAt:string}
-const root=path.resolve('.recovery-data/relay')
-const credentialFile=(signer:Address)=>path.resolve('.recovery-data/credentials',`${signer.toLowerCase()}.json`)
+const root=path.join(serverDataRoot(),'relay')
+const credentialFile=(signer:Address)=>path.join(serverDataRoot(),'credentials',`${signer.toLowerCase()}.json`)
 export async function relayRecords(safeValue:string):Promise<RelayRecord[]> {
   const safe=address(safeValue)
   let names:string[]
@@ -129,6 +131,7 @@ export async function deployCredential(safeValue:string,credential:PublicCredent
   const args=[BigInt(c.passkey.coordinates.x),BigInt(c.passkey.coordinates.y),BigInt(P256_VERIFIER)] as const
   const magic=await recoveryClient.readContract({address:SIGNER_FACTORY,abi:factoryAbi,functionName:'isValidSignatureForSigner',args:[metadataDigest(safe,module,c),signature,...args]})
   if (magic!=='0x1626ba7e') throw new Error('RECOVERY_INVALID_METADATA_PROOF')
+  if(c.role==='replacement')await (await import('../auth-server')).registerProvenReplacement(safe,c)
   await fs.mkdir(path.dirname(credentialFile(c.signer)),{recursive:true})
   await fs.writeFile(credentialFile(c.signer),JSON.stringify({safe,credential:c,signature}))
   const code=await recoveryClient.getCode({address:c.signer})

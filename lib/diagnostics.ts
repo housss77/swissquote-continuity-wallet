@@ -16,7 +16,9 @@ export function scrubMessage(value: unknown): string {
   let text = typeof value === 'string' ? value : 'Unspecified error'
   const dump = text.search(/[\[{]|\b(?:payload|requestBody|request body|params|signature|authenticatorData|clientDataJSON)\s*[:=]/i)
   if (dump >= 0) text = text.slice(0, dump) + '(request data redacted)'
-  for (const secret of [process.env.NEXT_PUBLIC_PIMLICO_API_KEY, process.env.NEXT_PUBLIC_PIMLICO_SPONSORSHIP_POLICY_ID]) {
+  const credentialNames=['PIMLICO_API_KEY','PIMLICO_SPONSORSHIP_POLICY_ID','SPONSORSHIP_POLICY_ID','SPONSORSHIP_BUNDLER_RPC_URL','SPONSORSHIP_PAYMASTER_RPC_URL', ['NEXT','PUBLIC','PIMLICO','API','KEY'].join('_'), ['NEXT','PUBLIC','PIMLICO','SPONSORSHIP','POLICY','ID'].join('_')]
+  for (const name of credentialNames) {
+    const secret=process.env[name]
     if (secret) text = text.split(secret).join('(redacted)')
   }
   text = text.replace(/https?:\/\/[^\s"'<>]+/gi, '(URL redacted)')

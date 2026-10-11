@@ -34,7 +34,7 @@ function scanClient(dir) {
   for(const entry of fs.readdirSync(dir,{withFileTypes:true})) {
     const filename=path.join(dir,entry.name)
     if(entry.isDirectory())scanClient(filename)
-    else if(/\.js$/.test(entry.name) && privateValues.some(s=>fs.readFileSync(filename,'utf8').includes(s.value)))findings.push(path.relative(root,filename))
+    else if(/\.js$/.test(entry.name) && values.some(s=>fs.readFileSync(filename,'utf8').includes(s.value)))findings.push(path.relative(root,filename))
   }
 }
 scanClient('.next/static')
