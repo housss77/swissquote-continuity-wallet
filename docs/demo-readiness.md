@@ -1,5 +1,10 @@
 # Morning demo readiness
 
+For the phone build, use `/login`, `/activate` and `/receive`. Hosting is prepared
+but not provisioned. Follow [the HTTPS phone deployment checklist](phone-deployment.md)
+before creating an iPhone passkey; localhost credentials cannot migrate domains.
+`npm run mobile:check` adds fixed-origin/RP and persistent-storage checks.
+
 Open **http://localhost:3000/demo**. The six-scene main pitch takes approximately 3:45. It needs no operator token, original passkey, JSON approval exchange or live timelock wait. Its recovery story is explicitly **Verified earlier on Sepolia**. Presenter narration, fallback and Q&A: [demo-script.md](demo-script.md).
 
 ## Start and read-only check

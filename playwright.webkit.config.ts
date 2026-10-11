@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test'
+export default defineConfig({testDir:'./tests/browser',testMatch:['mobile.spec.ts','product.spec.ts','send.spec.ts','demo.spec.ts','pwa.spec.ts'],workers:1,reporter:'list',use:{browserName:'webkit',baseURL:'http://localhost:3000',viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block',trace:'off',screenshot:'off',video:'off'},webServer:{command:'npm run dev',url:'http://localhost:3000',reuseExistingServer:true,timeout:120000}})

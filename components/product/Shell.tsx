@@ -4,11 +4,12 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import { EXPLORER } from '../../lib/constants'
 import { shortAddress } from '../../lib/product'
+import {MobileStatus} from './Mobile'
 
 export function Shell({children}:{children:React.ReactNode}) {
   const path=usePathname()
   const links=[['/','Wallet'],['/send','Send'],['/protection','Recovery'],['/activity','Activity']]
-  return <div className="product"><a className="skip-link" href="#content">Skip to content</a><header className="app-header"><div className="header-inner"><Link href="/" className="wordmark"><span className="brand-mark" aria-hidden="true"/>Continuity</Link><nav aria-label="Main navigation">{links.map(([href,label])=><Link key={href} href={href} aria-current={path===href || (href==='/protection' && path==='/recovery')?'page':undefined}>{label}</Link>)}</nav><span className="network-label"><span aria-hidden="true"/>Sepolia testnet</span></div></header><main id="content" className="customer-main">{children}</main><footer className="app-footer"><span>Swissquote-inspired hackathon concept · Test assets only</span><div><Link href="/demo">Jury demo</Link><Link href="/lab">Advanced lab</Link></div></footer></div>
+  return <div className="product"><a className="skip-link" href="#content">Skip to content</a><header className="app-header"><div className="header-inner"><Link href="/" className="wordmark"><span className="brand-mark" aria-hidden="true"/>Continuity</Link><nav aria-label="Main navigation">{links.map(([href,label])=><Link key={href} href={href} aria-current={path===href || (href==='/protection' && path==='/recovery')?'page':undefined}>{label}</Link>)}</nav><span className="network-label"><span aria-hidden="true"/>Sepolia testnet</span></div></header><MobileStatus/><main id="content" className="customer-main">{children}</main><footer className="app-footer"><span>Swissquote-inspired hackathon concept · Test assets only</span><div><Link href="/login">Sign in</Link><Link href="/install">On your phone</Link><Link href="/demo">Jury demo</Link><Link href="/lab">Advanced lab</Link></div></footer></div>
 }
 export function AddressLine({address,label='Wallet address'}:{address:string;label?:string}) {
   const [copied,setCopied]=useState(false),[error,setError]=useState(false)

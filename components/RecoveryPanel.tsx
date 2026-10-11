@@ -5,6 +5,7 @@ import { publicClient, initializeWallet, walletSnapshot } from '../lib/wallet'
 import { ENTRY_POINT, EXPLORER } from '../lib/constants'
 import { diagnose } from '../lib/diagnostics'
 import { loadPasskey, authenticatePasskey } from '../lib/passkeys'
+import {createdPasskey,currentPasskey} from '../lib/customer-credentials'
 import { mintTransaction } from '../lib/transactions'
 import { prepareSponsoredTransaction } from '../lib/sponsorship'
 import { sponsorshipReads } from '../lib/wallet'
@@ -25,8 +26,8 @@ import { assertConfigurationWritable } from '../lib/product'
 type CredentialRecord={credential:PublicCredential;signature:Hex}
 type RelayRecord={hash:Hash;state:string;action:string}
 const draftKey='continuity-recovery-public-draft-v1'
-export default function RecoveryPanel() {
-  const [safeInput,setSafeInput]=useState(''),[state,setState]=useState<RecoveryState|null>(null)
+export default function RecoveryPanel({initialSafe='',embedded=false}:{initialSafe?:string;embedded?:boolean}={}) {
+  const [safeInput,setSafeInput]=useState(initialSafe),[state,setState]=useState<RecoveryState|null>(null)
   const [bank,setBank]=useState<Address|null>(null),[third,setThird]=useState(''),[backup,setBackup]=useState<CredentialRecord|null>(null)
   const [replacement,setReplacement]=useState<CredentialRecord|null>(null),[savedBackup,setSavedBackup]=useState<PublicCredential|null>(null)
   const [intent,setIntent]=useState<RecoveryIntent|null>(null),[approvals,setApprovals]=useState<GuardianApproval[]>([])
@@ -84,7 +85,7 @@ export default function RecoveryPanel() {
     if (!state) return
     assertDisposableSafe(state.safe)
     assertConfigurationWritable(state.safe)
-    const credential=await createRecoveryCredential(publicClient,role,loadPasskey() || undefined)
+    const credential=await createRecoveryCredential(publicClient,role,createdPasskey() || loadPasskey() || undefined)
     await verifyFreshCredential(publicClient,state.safe,state.owners,state.guardians,credential)
     const record={credential,signature:await signDigest(credential,metadataDigest(state.safe,state.module,credential))}
     const next={safe:state.safe,backup:role==='customer_backup'?record:backup,replacement:role==='replacement'?record:replacement}
@@ -107,7 +108,7 @@ export default function RecoveryPanel() {
     if (!state)return
     assertDisposableSafe(state.safe)
     assertConfigurationWritable(state.safe)
-    const pk=rotated && replacement?replacement.credential.passkey:loadPasskey()
+    const pk=rotated && replacement?replacement.credential.passkey:await currentPasskey(state.safe)
     if (!pk)throw new Error('RECOVERY_AUTHORIZED_SPENDING_PASSKEY_UNAVAILABLE')
     await authenticatePasskey(pk)
     const pack=await initializeWallet(pk,state.safe)
@@ -218,7 +219,8 @@ export default function RecoveryPanel() {
     const proof=await sendPreparedRecovery(pack,prepared.operation,state.safe,prepared.paymasterAddress,`Recovered Safe tutorial NFT mint: token ${mint.tokenId}; zero ETH transferred`,setAttempt)
     if (proof) {setConfirmed(proof.transactionHash);setStatus('A real sponsored transaction from the recovered Safe was independently verified. Zero ETH transferred.')}
   }
-  return <main>
+  const Container=embedded?'div':'main'
+  return <Container className={embedded?'guardian-flow recovery-ceremony':undefined}>
     <h1>Recover your Continuity Wallet</h1><p>Ethereum Sepolia only. Your wallet address and assets stay in place during owner rotation.</p>
     <p><a href="/">Back to wallet</a></p><p role="status">{status}</p>{error && <p role="alert">{error}</p>}
     <section><h2>Find your wallet</h2><label>Safe address<input value={safeInput} onChange={e=>setSafeInput(e.target.value)} autoComplete="off"/></label>
@@ -275,5 +277,5 @@ export default function RecoveryPanel() {
       <button disabled={busy || !['included','rejected','failed'].includes(attempt.state)} onClick={()=>run(async()=>{archiveRecoveryAttempt();setAttempt(null)})}>Preserve completed attempt and enable manual next operation</button></section>}
     {confirmed && <p className="success">Verified Sepolia transaction: <a href={`${EXPLORER}/tx/${confirmed}`} target="_blank" rel="noreferrer">{confirmed}</a>. Review its verified postconditions above.</p>}
     <p className="notice">Any two guardians can replace your spending owner after the delay. Bank identity verification and institutional operation are simulated. Passkey sync is provider-dependent. Email and SMS alerts are not implemented. This local demo is not a production bank service.</p>
-  </main>
+  </Container>
 }

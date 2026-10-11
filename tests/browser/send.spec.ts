@@ -8,7 +8,7 @@ import {tokenAbi,USDC_ADDRESS} from '../../lib/product'
 const recipient='0x419D08ffDD36aE0Ebcc5d652D029D50c33CfdD86'
 test('zero USDC shows faucet funding and blocks review without requesting a signature',async({page})=>{
  const f=await walletFixture(page);await page.goto('/send');await expect(page.getByText('Balance: 0 USDC')).toBeVisible()
- await expect(page.getByRole('link',{name:'Get free test USDC ↗'})).toHaveAttribute('href','https://faucet.circle.com/')
+  await expect(page.getByRole('link',{name:'Get free test USDC ↗'})).toHaveAttribute('href','/receive')
  await expect(page.getByRole('button',{name:'Review transfer'})).toBeDisabled();expect(f.sends()).toBe(0)
 })
 test('Max preserves six decimals and invalid input never prepares or broadcasts',async({page})=>{

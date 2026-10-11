@@ -11,6 +11,7 @@ export default defineConfig({
     baseURL: 'http://localhost:3000',
     channel: 'chrome',
     headless: true,
+    serviceWorkers:'block', // Synthetic RPC fixtures must stay interceptable.
     trace: 'off',
     screenshot: 'off',
     video: 'off',

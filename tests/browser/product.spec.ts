@@ -37,7 +37,9 @@ test('mobile wallet navigation and input layout fit 390 pixels',async({page})=>{
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true)
 })
 test('cancelled customer passkey creation preserves the empty session and shows actionable guidance',async({page})=>{
- await page.addInitScript(()=>Object.defineProperty(navigator,'credentials',{value:{create:()=>Promise.reject(new DOMException('Cancelled','NotAllowedError')),get:()=>Promise.reject(new DOMException('Cancelled','NotAllowedError'))}}))
+ // Explicit cancellation fixture, including WebAuthn support where the host
+ // WebKit build has no physical authenticator API. This is not a Face ID test.
+ await page.addInitScript(()=>{Object.defineProperty(window,'PublicKeyCredential',{value:class {}});Object.defineProperty(navigator,'credentials',{value:{create:()=>Promise.reject(new DOMException('Cancelled','NotAllowedError')),get:()=>Promise.reject(new DOMException('Cancelled','NotAllowedError'))}})})
  await page.goto('/');await page.getByRole('button',{name:'Create wallet',exact:true}).click()
  await expect(page.getByRole('main').getByRole('alert')).toContainText('cancelled')
  expect(await page.evaluate(()=>localStorage.getItem('continuity-customer-created-passkey-v1'))).toBeNull()

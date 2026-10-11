@@ -1,5 +1,13 @@
 # Swissquote Continuity — hackathon concept
 
+**Phone-ready build:** start at `/login` for Face ID/passkey sign-in, `/activate`
+for an explicit sponsored test NFT activation, `/receive` for precise Circle
+funding checks, and `/demo` for the jury. The installable mobile web app needs a
+stable HTTPS deployment. Follow [phone deployment and acceptance](docs/phone-deployment.md)
+and [replaceable Swissquote sponsorship boundary](docs/sponsorship-adapter.md).
+Provider credentials now remain server-side. No hosting is provisioned yet;
+physical iPhone signing and live USDC remain human verification steps.
+
 Start the polished jury walkthrough at **http://localhost:3000/demo**. Customer
 routes: `/` wallet, `/send` test USDC, `/protection` recovery settings, `/recovery`
 guided recovery overview, `/activity` real historical evidence. `/guardian` keeps

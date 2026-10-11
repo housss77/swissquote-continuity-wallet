@@ -4,6 +4,12 @@ The demo currently uses Pimlico. Swissquote is not connected and has not funded
 these operations. Sponsorship buys network gas; it does not buy a customer's
 assets or add a bank spending key.
 
+The shipped login is a verified wallet passkey session, not a Swissquote customer
+SSO integration. A future bank adapter can map a customer session to the proven
+wallet and sponsorship entitlement at this server boundary. That integration
+must preserve a separate customer approval for spending; a bank login or backend
+session must never manufacture the Safe owner's signature.
+
 ```mermaid
 flowchart LR
   Phone[Safari / customer passkey] -->|origin-bound session| Gateway[Continuity sponsorship gateway]

@@ -1,0 +1,22 @@
+services:
+  continuity:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_PASSKEY_RP_ID: ${NEXT_PUBLIC_PASSKEY_RP_ID:-localhost}
+        NEXT_PUBLIC_RECOVERY_MODULE_ADDRESS: ${NEXT_PUBLIC_RECOVERY_MODULE_ADDRESS}
+        NEXT_PUBLIC_RECOVERY_DELAY_SECONDS: ${NEXT_PUBLIC_RECOVERY_DELAY_SECONDS:-180}
+    env_file: .env.local
+    environment:
+      HOSTNAME: 0.0.0.0
+      CONTINUITY_DATA_DIR: /data
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - continuity-data:/data
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  continuity-data:

@@ -170,3 +170,25 @@ summary { cursor:pointer;font-weight:500;min-height:32px; }
 .product .guardian-flow input[type=file]{margin:12px 0 24px;padding:12px;background:white}
 .product .address-line .button-text{min-height:44px}
 @media(max-width:600px){.product .send-form,.product .send-review,.product .transfer-result{padding:20px 16px;margin-top:24px}.product .review-facts{grid-template-columns:1fr;gap:6px}.product .review-facts dd{margin-bottom:12px}.product .send-form .section-heading{align-items:flex-start;gap:8px;flex-direction:column}}
+
+/* Phone-first access, with safe-area spacing for installed iPhone apps. */
+.access-layout{max-width:560px;margin:0 auto}
+.product .access-panel{padding:32px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.access-symbol{display:flex;width:52px;height:52px;align-items:center;justify-content:center;background:var(--ink);color:#f17236;font-size:33px;font-weight:700;border-radius:10px;margin-bottom:24px}
+.access-primary,.access-secondary{display:block;width:100%;margin:16px 0;min-height:50px}
+.access-secondary{background:transparent}
+.access-benefits{padding-left:20px;color:var(--muted);line-height:1.9;font-size:14px}
+.quiet-link{display:inline-block;margin-top:24px;font-size:14px}
+.connection-banner{padding:12px 20px;background:#fff6e7;border-bottom:1px solid #e3d3b8;color:#64481f;font-size:14px}
+.install-content{max-width:600px;margin:0 auto}.install-steps{padding-left:24px;line-height:1.8}.install-steps li{padding:12px 0}
+.app-footer>div{display:flex;flex-wrap:wrap;gap:16px}
+@media(max-width:760px){
+ .product{min-height:100dvh}.product input,.product select{font-size:16px}
+ .header-inner{padding-top:max(14px,env(safe-area-inset-top));padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+ .app-header nav{position:fixed;bottom:0;left:0;right:0;z-index:20;box-sizing:border-box;width:100%;height:calc(60px + env(safe-area-inset-bottom));padding:0 20px env(safe-area-inset-bottom);background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -2px 8px #20222506}
+ .app-header nav a{min-height:56px;padding:0 8px;border-bottom:0;border-top:2px solid transparent}.app-header nav a[aria-current=page]{border-top-color:var(--accent)}
+ .header-inner{min-height:64px;padding-bottom:12px}.product main.customer-main{padding-top:28px;padding-bottom:36px}
+ .app-footer{padding-bottom:calc(88px + env(safe-area-inset-bottom));gap:12px}.access-panel{padding:24px!important}.access-layout .page-heading h1{font-size:32px}
+ .welcome-panel .actions{display:grid;grid-template-columns:1fr;width:100%}.welcome-panel .actions button{min-height:50px}.product button,.product .button{touch-action:manipulation}
+ .demo-controls{position:relative;flex-wrap:wrap}.wizard-steps{font-size:12px}
+}
